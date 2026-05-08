@@ -1,0 +1,19 @@
+{
+  "id": "/",
+  "name": "話して学ぶ — 말하며 배우다",
+  "short_name": "話して学ぶ",
+  "description": "한국어 대화를 일본어 표현으로 변환하여 학습하는 앱",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F6FAF8",
+  "theme_color": "#1B4332",
+  "categories": ["education", "language"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
