@@ -1,10 +1,10 @@
 {
-  "id": "/",
+  "id": "/hanashite-manabu/",
   "name": "話して学ぶ — 말하며 배우다",
   "short_name": "話して学ぶ",
   "description": "한국어 대화를 일본어 표현으로 변환하여 학습하는 앱",
-  "start_url": "/",
-  "scope": "/",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#F6FAF8",
