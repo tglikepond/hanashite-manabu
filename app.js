@@ -22,9 +22,9 @@ const state = {
 
 let recognition = null;
 let restartTimer = null;
-let currentSessionText = '';  // Current session's recognized text (replaced, not appended)
+let lastCommittedSegment = '';  // For deduplication
 let restartCount = 0;
-const MAX_RESTARTS = 50;
+const MAX_RESTARTS = 200;
 
 // ===== DOM Elements =====
 const $ = (sel) => document.querySelector(sel);
@@ -168,37 +168,33 @@ function initSpeechRecognition() {
   }
   recognition = new SpeechRecognition();
   recognition.lang = 'ko-KR';
-  recognition.continuous = true;
+  recognition.continuous = false;   // KEY FIX: one utterance at a time
   recognition.interimResults = true;
 
   recognition.onresult = (e) => {
-    let finalText = '';
-    let interim = '';
+    // With continuous:false, e.results usually has just 1 entry
+    const result = e.results[e.results.length - 1];
+    const text = result[0].transcript;
 
-    // Rebuild ALL final results for this session (replace, not append)
-    for (let i = 0; i < e.results.length; i++) {
-      if (e.results[i].isFinal) {
-        finalText += e.results[i][0].transcript + ' ';
-      } else {
-        interim = e.results[i][0].transcript;
+    if (result.isFinal) {
+      // Dedup: check if this text is substantially the same as the last committed segment
+      const trimmed = text.trim();
+      if (trimmed && !isDuplicate(trimmed, lastCommittedSegment)) {
+        state.transcript += trimmed + ' ';
+        lastCommittedSegment = trimmed;
       }
+      state.interimTranscript = '';
+    } else {
+      // Show interim text as preview
+      state.interimTranscript = text;
     }
-
-    // REPLACE session text (not append) — this prevents duplication
-    currentSessionText = finalText;
-    state.interimTranscript = interim;
     updateTranscriptUI();
   };
 
   recognition.onend = () => {
-    // Commit current session text to permanent transcript before restart
-    if (currentSessionText.trim()) {
-      state.transcript += currentSessionText;
-      currentSessionText = '';
-    }
     state.interimTranscript = '';
 
-    // Auto-restart with delay
+    // Auto-restart for continuous listening experience
     if (state.isListening && restartCount < MAX_RESTARTS) {
       clearTimeout(restartTimer);
       restartTimer = setTimeout(() => {
@@ -206,7 +202,7 @@ function initSpeechRecognition() {
           restartCount++;
           try { recognition.start(); } catch (e) { /* ignore */ }
         }
-      }, 500);
+      }, 300);
     } else if (restartCount >= MAX_RESTARTS) {
       stopListening();
       showToast('장시간 대화 수집이 종료되었습니다. 다시 시작해주세요.');
@@ -221,7 +217,6 @@ function initSpeechRecognition() {
       } else {
         showToast('마이크 권한이 필요합니다. 브라우저 설정에서 마이크를 허용해주세요.');
       }
-      // Stop completely on permission error to prevent popup loop
       state.isListening = false;
       stopListening();
     } else if (e.error === 'no-speech') {
@@ -239,12 +234,26 @@ function initSpeechRecognition() {
   return true;
 }
 
+// Check if newText is a duplicate of lastText
+function isDuplicate(newText, lastText) {
+  if (!lastText) return false;
+  const a = newText.replace(/\s+/g, '');
+  const b = lastText.replace(/\s+/g, '');
+  // Exact match
+  if (a === b) return true;
+  // One contains the other (partial repeat)
+  if (a.length > 3 && b.length > 3) {
+    if (a.includes(b) || b.includes(a)) return true;
+  }
+  return false;
+}
+
 function startListening() {
-  // Check for secure context (HTTPS) first
   if (!checkSecureContext()) return;
   if (!recognition && !initSpeechRecognition()) return;
   state.isListening = true;
   restartCount = 0;
+  lastCommittedSegment = '';
   try { recognition.start(); } catch (e) { /* already started */ }
   els.micBtn.classList.add('listening');
   els.waveform.classList.add('active');
@@ -255,11 +264,6 @@ function startListening() {
 function stopListening() {
   state.isListening = false;
   clearTimeout(restartTimer);
-  // Commit any remaining session text
-  if (currentSessionText.trim()) {
-    state.transcript += currentSessionText;
-    currentSessionText = '';
-  }
   state.interimTranscript = '';
   if (recognition) {
     try { recognition.stop(); } catch (e) { /* ignore */ }
@@ -271,14 +275,12 @@ function stopListening() {
 }
 
 function updateTranscriptUI() {
-  // Full text = committed sessions + current session + interim
-  const full = state.transcript + currentSessionText + state.interimTranscript;
+  const full = state.transcript + state.interimTranscript;
   if (full.trim()) {
     els.transcriptPlaceholder.classList.add('hidden');
     els.transcriptText.classList.remove('hidden');
     els.transcriptText.textContent = full;
     els.convertBtn.disabled = false;
-    // Auto-scroll to bottom
     els.transcriptBox.scrollTop = els.transcriptBox.scrollHeight;
   } else {
     els.transcriptPlaceholder.classList.remove('hidden');
