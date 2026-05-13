@@ -643,7 +643,7 @@ function initEvents() {
   // Clear transcript
   els.clearTranscriptBtn.addEventListener('click', () => {
     state.transcript = '';
-    currentSessionText = '';
+    lastCommittedSegment = '';
     state.interimTranscript = '';
     updateTranscriptUI();
     els.resultsArea.classList.add('hidden');
