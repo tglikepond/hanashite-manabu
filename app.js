@@ -1866,27 +1866,25 @@ async function init() {
       // Check for updates periodically (every 2 minutes)
       setInterval(() => reg.update(), 2 * 60 * 1000);
 
-      // When a new SW is found, show update banner instead of auto-reloading
+      // If there's a waiting SW from a previous session, activate it now
+      if (reg.waiting) {
+        reg.waiting.postMessage('skipWaiting');
+      }
+
+      // When a new SW is found and installs, it will skipWaiting and activate
+      // The controllerchange handler below will reload the page
       reg.addEventListener('updatefound', () => {
         const newWorker = reg.installing;
         if (!newWorker) return;
-
         newWorker.addEventListener('statechange', () => {
-          // New SW is installed and waiting to activate
           if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-            newWorkerWaiting = newWorker;
-            showUpdateBanner();
+            // Show a brief toast notification
+            showToast('🔄 새 버전 적용 중...');
           }
         });
       });
 
-      // Also check if there's already a waiting SW (from a previous visit)
-      if (reg.waiting) {
-        newWorkerWaiting = reg.waiting;
-        showUpdateBanner();
-      }
-
-      // Handle controller change (when user accepts the update)
+      // When the SW controller changes (new SW activated), reload
       let refreshing = false;
       navigator.serviceWorker.addEventListener('controllerchange', () => {
         if (!refreshing) {
