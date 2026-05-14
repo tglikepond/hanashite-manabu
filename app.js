@@ -1342,7 +1342,6 @@ async function incrementGlobalStat(expr, countType = 'analyze') {
         p_japanese: expr.japanese || '',
         p_reading: expr.reading || '',
         p_pronunciation: expr.pronunciation || '',
-        p_importance: expr.type || 'sentence',
         p_count_type: countType,
       }),
     });
@@ -1467,57 +1466,49 @@ async function renderRanking() {
   function filterByType(items) {
     if (typeFilter === 'all') return items;
     return items.filter(item => {
-      // Check type field (local) or importance field (Supabase, where we store type)
-      const itemType = item.type || item.importance || 'sentence';
+      // Only use type field; importance contains Korean labels (필수/자주사용/유용)
+      const itemType = item.type || '';
       return itemType === typeFilter;
     });
   }
 
+  // When filtering by type, always use local data (Supabase doesn't have type column)
+  const useGlobalForThis = useGlobal && typeFilter === 'all';
+
   // --- Top Analyzed ---
   analyzedList.innerHTML = '';
-  if (useGlobal) {
-    const globalAnalyzed = await getGlobalRankings('analyze_count', 50);
+  if (useGlobalForThis) {
+    const globalAnalyzed = await getGlobalRankings('analyze_count', 10);
     if (globalAnalyzed && globalAnalyzed.length > 0) {
       updateConnectionStatus(true);
-      const filtered = filterByType(globalAnalyzed).slice(0, 10);
-      if (filtered.length > 0) {
-        analyzedEmpty.classList.add('hidden');
-        const maxCount = filtered[0].analyze_count || 1;
-        filtered.forEach((item, i) => {
-          analyzedList.appendChild(renderRankingCard(item, i + 1, maxCount, 'analyzed'));
-        });
-      } else {
-        analyzedEmpty.classList.remove('hidden');
-      }
+      analyzedEmpty.classList.add('hidden');
+      const maxCount = globalAnalyzed[0].analyze_count || 1;
+      globalAnalyzed.forEach((item, i) => {
+        analyzedList.appendChild(renderRankingCard(item, i + 1, maxCount, 'analyzed'));
+      });
     } else if (globalAnalyzed) {
       updateConnectionStatus(true);
       analyzedEmpty.classList.remove('hidden');
     } else {
-      // Fetch failed — fall back to local
       updateConnectionStatus(false);
       renderLocalAnalyzed(analyzedList, analyzedEmpty, typeFilter);
     }
   } else {
-    updateConnectionStatus(false);
+    if (useGlobal) updateConnectionStatus(true);
+    else updateConnectionStatus(false);
     renderLocalAnalyzed(analyzedList, analyzedEmpty, typeFilter);
   }
 
   // --- Top Saved ---
   savedList.innerHTML = '';
-  if (useGlobal) {
-    const globalSaved = await getGlobalRankings('save_count', 50);
+  if (useGlobalForThis) {
+    const globalSaved = await getGlobalRankings('save_count', 10);
     if (globalSaved && globalSaved.length > 0) {
       savedEmpty.classList.add('hidden');
-      const filtered = filterByType(globalSaved).slice(0, 10);
-      if (filtered.length > 0) {
-        savedEmpty.classList.add('hidden');
-        const maxCount = filtered[0].save_count || 1;
-        filtered.forEach((item, i) => {
-          savedList.appendChild(renderRankingCard(item, i + 1, maxCount, 'saved'));
-        });
-      } else {
-        savedEmpty.classList.remove('hidden');
-      }
+      const maxCount = globalSaved[0].save_count || 1;
+      globalSaved.forEach((item, i) => {
+        savedList.appendChild(renderRankingCard(item, i + 1, maxCount, 'saved'));
+      });
     } else if (globalSaved) {
       savedEmpty.classList.remove('hidden');
     } else {
