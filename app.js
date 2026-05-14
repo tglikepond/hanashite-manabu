@@ -24,6 +24,7 @@ const state = {
   supabaseUrl: localStorage.getItem('supabase_url') || DEFAULT_SUPABASE_URL,
   supabaseKey: localStorage.getItem('supabase_key') || DEFAULT_SUPABASE_KEY,
   db: null,
+  rankingTypeFilter: 'all',
 };
 
 let recognition = null;
@@ -1367,6 +1368,7 @@ function trackAnalyzedExpressions(expressions) {
         reading: expr.reading,
         pronunciation: expr.pronunciation || '',
         importance: expr.importance || '유용',
+        type: expr.type || 'sentence',
         lastSeen: Date.now(),
       };
     }
@@ -1444,53 +1446,74 @@ async function renderRanking() {
   const savedEmpty = $('#ranking-saved-empty');
 
   const useGlobal = isSupabaseConfigured();
+  const typeFilter = state.rankingTypeFilter || 'all';
+
+  function filterByType(items) {
+    if (typeFilter === 'all') return items;
+    return items.filter(item => (item.type || 'sentence') === typeFilter);
+  }
 
   // --- Top Analyzed ---
   analyzedList.innerHTML = '';
   if (useGlobal) {
-    const globalAnalyzed = await getGlobalRankings('analyze_count', 10);
+    const globalAnalyzed = await getGlobalRankings('analyze_count', 50);
     if (globalAnalyzed && globalAnalyzed.length > 0) {
       updateConnectionStatus(true);
-      analyzedEmpty.classList.add('hidden');
-      const maxCount = globalAnalyzed[0].analyze_count || 1;
-      globalAnalyzed.forEach((item, i) => {
-        analyzedList.appendChild(renderRankingCard(item, i + 1, maxCount, 'analyzed'));
-      });
+      const filtered = filterByType(globalAnalyzed).slice(0, 10);
+      if (filtered.length > 0) {
+        analyzedEmpty.classList.add('hidden');
+        const maxCount = filtered[0].analyze_count || 1;
+        filtered.forEach((item, i) => {
+          analyzedList.appendChild(renderRankingCard(item, i + 1, maxCount, 'analyzed'));
+        });
+      } else {
+        analyzedEmpty.classList.remove('hidden');
+      }
     } else if (globalAnalyzed) {
       updateConnectionStatus(true);
       analyzedEmpty.classList.remove('hidden');
     } else {
       // Fetch failed — fall back to local
       updateConnectionStatus(false);
-      renderLocalAnalyzed(analyzedList, analyzedEmpty);
+      renderLocalAnalyzed(analyzedList, analyzedEmpty, typeFilter);
     }
   } else {
     updateConnectionStatus(false);
-    renderLocalAnalyzed(analyzedList, analyzedEmpty);
+    renderLocalAnalyzed(analyzedList, analyzedEmpty, typeFilter);
   }
 
   // --- Top Saved ---
   savedList.innerHTML = '';
   if (useGlobal) {
-    const globalSaved = await getGlobalRankings('save_count', 10);
+    const globalSaved = await getGlobalRankings('save_count', 50);
     if (globalSaved && globalSaved.length > 0) {
       savedEmpty.classList.add('hidden');
-      const maxCount = globalSaved[0].save_count || 1;
-      globalSaved.forEach((item, i) => {
-        savedList.appendChild(renderRankingCard(item, i + 1, maxCount, 'saved'));
-      });
+      const filtered = filterByType(globalSaved).slice(0, 10);
+      if (filtered.length > 0) {
+        savedEmpty.classList.add('hidden');
+        const maxCount = filtered[0].save_count || 1;
+        filtered.forEach((item, i) => {
+          savedList.appendChild(renderRankingCard(item, i + 1, maxCount, 'saved'));
+        });
+      } else {
+        savedEmpty.classList.remove('hidden');
+      }
     } else if (globalSaved) {
       savedEmpty.classList.remove('hidden');
     } else {
-      renderLocalSaved(savedList, savedEmpty);
+      renderLocalSaved(savedList, savedEmpty, typeFilter);
     }
   } else {
-    renderLocalSaved(savedList, savedEmpty);
+    renderLocalSaved(savedList, savedEmpty, typeFilter);
   }
 }
 
-function renderLocalAnalyzed(listEl, emptyEl) {
-  const topAnalyzed = getTopAnalyzed(10);
+function renderLocalAnalyzed(listEl, emptyEl, typeFilter = 'all') {
+  let topAnalyzed = getTopAnalyzed(50);
+  if (typeFilter !== 'all') {
+    topAnalyzed = topAnalyzed.filter(item => (item.type || 'sentence') === typeFilter);
+  }
+  topAnalyzed = topAnalyzed.slice(0, 10);
   if (topAnalyzed.length === 0) {
     emptyEl.classList.remove('hidden');
   } else {
@@ -1502,8 +1525,11 @@ function renderLocalAnalyzed(listEl, emptyEl) {
   }
 }
 
-async function renderLocalSaved(listEl, emptyEl) {
-  const allSaved = await getAllExpressions();
+async function renderLocalSaved(listEl, emptyEl, typeFilter = 'all') {
+  let allSaved = await getAllExpressions();
+  if (typeFilter !== 'all') {
+    allSaved = allSaved.filter(e => (e.type || 'sentence') === typeFilter);
+  }
   if (allSaved.length === 0) {
     emptyEl.classList.remove('hidden');
   } else {
@@ -1518,6 +1544,7 @@ async function renderLocalSaved(listEl, emptyEl) {
         savedCounts[key] = {
           count: 1, korean: key, japanese: expr.japanese,
           reading: expr.reading, pronunciation: expr.pronunciation || '',
+          type: expr.type || 'sentence',
           savedAt: expr.savedAt,
         };
       }
@@ -1693,6 +1720,19 @@ function initEvents() {
         renderRanking();
         showToast('로컬 분석 통계가 초기화되었습니다');
       }
+    });
+  }
+
+  // Ranking type toggle
+  const rankingToggle = document.getElementById('ranking-type-toggle');
+  if (rankingToggle) {
+    rankingToggle.addEventListener('click', (e) => {
+      const btn = e.target.closest('.ranking-type-btn');
+      if (!btn) return;
+      rankingToggle.querySelectorAll('.ranking-type-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      state.rankingTypeFilter = btn.dataset.type;
+      renderRanking();
     });
   }
 
