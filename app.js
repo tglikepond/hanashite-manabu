@@ -1784,7 +1784,7 @@ async function init() {
   if ('serviceWorker' in navigator) {
     let newWorkerWaiting = null;
 
-    navigator.serviceWorker.register('sw.js').then((reg) => {
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => {
       // Check for updates on every page load
       reg.update();
 
