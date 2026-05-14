@@ -1656,11 +1656,37 @@ async function init() {
     els.apiModal.classList.add('active');
   }
 
-  // Register service worker (required for PWA install)
+  // Register service worker with auto-update (required for PWA install)
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').then((reg) => {
-      // Check for updates periodically
-      setInterval(() => reg.update(), 5 * 60 * 1000);
+      // Check for updates on every page load
+      reg.update();
+
+      // Check for updates periodically (every 1 minute for faster propagation)
+      setInterval(() => reg.update(), 60 * 1000);
+
+      // When a new SW is found, activate it immediately and reload
+      reg.addEventListener('updatefound', () => {
+        const newWorker = reg.installing;
+        if (!newWorker) return;
+
+        newWorker.addEventListener('statechange', () => {
+          if (newWorker.state === 'activated') {
+            // New version activated — reload to use latest code
+            console.log('[App] New version activated, reloading...');
+            window.location.reload();
+          }
+        });
+      });
+
+      // Handle controller change (when a new SW takes over)
+      let refreshing = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!refreshing) {
+          refreshing = true;
+          window.location.reload();
+        }
+      });
     }).catch((err) => console.warn('SW registration failed:', err));
   }
 
