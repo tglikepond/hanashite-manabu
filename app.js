@@ -1290,10 +1290,13 @@ function supabaseHeaders() {
 async function getGlobalRankings(orderBy = 'analyze_count', limit = 10) {
   if (!isSupabaseConfigured()) return null;
   try {
-    const url = `${state.supabaseUrl}/rest/v1/expression_rankings?select=*&order=${orderBy}.desc&limit=${limit}&or=(analyze_count.gt.0,save_count.gt.0)`;
+    // Filter: only show items where the sorted column is > 0
+    const url = `${state.supabaseUrl}/rest/v1/expression_rankings?select=*&order=${orderBy}.desc&limit=${limit}&${orderBy}=gt.0`;
     const res = await fetch(url, { headers: supabaseHeaders() });
     if (!res.ok) throw new Error(`Supabase error: ${res.status}`);
-    return await res.json();
+    const data = await res.json();
+    // Client-side double-check: filter out any items with 0 count
+    return data.filter(item => (item[orderBy] || 0) > 0);
   } catch (err) {
     console.warn('Global ranking fetch failed:', err.message);
     return null;
@@ -1370,6 +1373,7 @@ function getTopAnalyzed(limit = 10) {
   const stats = getAnalysisStats();
   return Object.entries(stats)
     .map(([korean, data]) => ({ korean, ...data }))
+    .filter(item => (item.count || 0) > 0)
     .sort((a, b) => b.count - a.count)
     .slice(0, limit);
 }
