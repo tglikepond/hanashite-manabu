@@ -1313,11 +1313,15 @@ function supabaseHeaders() {
 }
 
 // --- Supabase API: Read global rankings ---
-async function getGlobalRankings(orderBy = 'analyze_count', limit = 10) {
+async function getGlobalRankings(orderBy = 'analyze_count', limit = 10, typeFilter = 'all') {
   if (!isSupabaseConfigured()) return null;
   try {
     // Filter: only show items where the sorted column is > 0
-    const url = `${state.supabaseUrl}/rest/v1/expression_rankings?select=*&order=${orderBy}.desc&limit=${limit}&${orderBy}=gt.0`;
+    let url = `${state.supabaseUrl}/rest/v1/expression_rankings?select=*&order=${orderBy}.desc&limit=${limit}&${orderBy}=gt.0`;
+    // Add type filter if not 'all'
+    if (typeFilter && typeFilter !== 'all') {
+      url += `&type=eq.${typeFilter}`;
+    }
     const res = await fetch(url, { headers: supabaseHeaders() });
     if (!res.ok) throw new Error(`Supabase error: ${res.status}`);
     const data = await res.json();
@@ -1343,6 +1347,7 @@ async function incrementGlobalStat(expr, countType = 'analyze') {
         p_reading: expr.reading || '',
         p_pronunciation: expr.pronunciation || '',
         p_count_type: countType,
+        p_type: expr.type || 'sentence',
       }),
     });
   } catch (err) {
@@ -1472,13 +1477,10 @@ async function renderRanking() {
     });
   }
 
-  // When filtering by type, always use local data (Supabase doesn't have type column)
-  const useGlobalForThis = useGlobal && typeFilter === 'all';
-
   // --- Top Analyzed ---
   analyzedList.innerHTML = '';
-  if (useGlobalForThis) {
-    const globalAnalyzed = await getGlobalRankings('analyze_count', 10);
+  if (useGlobal) {
+    const globalAnalyzed = await getGlobalRankings('analyze_count', 10, typeFilter);
     if (globalAnalyzed && globalAnalyzed.length > 0) {
       updateConnectionStatus(true);
       analyzedEmpty.classList.add('hidden');
@@ -1494,15 +1496,14 @@ async function renderRanking() {
       renderLocalAnalyzed(analyzedList, analyzedEmpty, typeFilter);
     }
   } else {
-    if (useGlobal) updateConnectionStatus(true);
-    else updateConnectionStatus(false);
+    updateConnectionStatus(false);
     renderLocalAnalyzed(analyzedList, analyzedEmpty, typeFilter);
   }
 
   // --- Top Saved ---
   savedList.innerHTML = '';
-  if (useGlobalForThis) {
-    const globalSaved = await getGlobalRankings('save_count', 10);
+  if (useGlobal) {
+    const globalSaved = await getGlobalRankings('save_count', 10, typeFilter);
     if (globalSaved && globalSaved.length > 0) {
       savedEmpty.classList.add('hidden');
       const maxCount = globalSaved[0].save_count || 1;
