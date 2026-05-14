@@ -1,6 +1,6 @@
 // Service Worker for PWA — v2.4
 // Hybrid strategy: skipWaiting + update banner as fallback
-const SW_VERSION = 'v2.4';
+const SW_VERSION = 'v2.5';
 
 self.addEventListener('install', () => {
   console.log(`[SW ${SW_VERSION}] Installing...`);
