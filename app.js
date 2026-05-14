@@ -1103,6 +1103,8 @@ function renderExpressionCard(expr, isSaved = false) {
         } catch (err) {
           console.warn('Failed to update mastery:', err);
         }
+        // Re-render to move mastered items to bottom
+        setTimeout(() => renderNotes(), 350);
         showToast(checked ? '✅ 숙지 완료로 표시했습니다' : '↩️ 미숙지로 변경했습니다');
       });
     }
@@ -1262,15 +1264,19 @@ async function renderNotes() {
     const sentences = expressions.filter(e => e.type === 'sentence');
     const words = expressions.filter(e => e.type === 'word');
     const untyped = expressions.filter(e => !e.type || (e.type !== 'sentence' && e.type !== 'word'));
+    // Sort mastered items to bottom
+    function sortMasteredLast(items) {
+      return items.sort((a, b) => (a.mastered ? 1 : 0) - (b.mastered ? 1 : 0));
+    }
 
     // If searching or no type data, render flat list
     if (query || (sentences.length === 0 && words.length === 0)) {
-      expressions.forEach(expr => {
+      sortMasteredLast(expressions).forEach(expr => {
         els.notesList.appendChild(renderExpressionCard(expr, true));
       });
     } else {
       // Include untyped in sentences (backward compat)
-      const allSentences = [...sentences, ...untyped];
+      const allSentences = sortMasteredLast([...sentences, ...untyped]);
 
       if (allSentences.length > 0) {
         const sectionEl = createTypeSection('💬', '문장 · 구문', allSentences.length, 'sentence');
@@ -1280,9 +1286,10 @@ async function renderNotes() {
       }
 
       if (words.length > 0) {
-        const sectionEl = createTypeSection('📖', '단어', words.length, 'word');
+        const sortedWords = sortMasteredLast(words);
+        const sectionEl = createTypeSection('📖', '단어', sortedWords.length, 'word');
         const listEl = sectionEl.querySelector('.type-section-list');
-        words.forEach(expr => listEl.appendChild(renderExpressionCard(expr, true)));
+        sortedWords.forEach(expr => listEl.appendChild(renderExpressionCard(expr, true)));
         els.notesList.appendChild(sectionEl);
       }
     }
@@ -1447,6 +1454,12 @@ async function renderRanking() {
 
   const useGlobal = isSupabaseConfigured();
   const typeFilter = state.rankingTypeFilter || 'all';
+
+  // Restore active toggle button state
+  const toggleBtns = document.querySelectorAll('.ranking-type-btn');
+  toggleBtns.forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.type === typeFilter);
+  });
 
   function filterByType(items) {
     if (typeFilter === 'all') return items;
