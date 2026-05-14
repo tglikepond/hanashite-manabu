@@ -1,34 +1,43 @@
-// Service Worker for PWA — v1.4
+// Service Worker for PWA — v1.8
 // Versioned to force browser to detect changes and update the SW
-const SW_VERSION = 'v1.7';
+const SW_VERSION = 'v1.8';
 
 self.addEventListener('install', () => {
   console.log(`[SW ${SW_VERSION}] Installing...`);
-  // Skip waiting to activate immediately (don't wait for old tabs to close)
+  // CRITICAL: Skip waiting immediately so this new SW activates right away
+  // This is essential for users stuck on old versions without update banner
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (e) => {
   console.log(`[SW ${SW_VERSION}] Activating...`);
   e.waitUntil(
-    // Clear ALL caches from any previous versions
+    // Step 1: Clear ALL old caches
     caches.keys().then((keys) =>
       Promise.all(keys.map((k) => caches.delete(k)))
-    ).then(() => {
-      // Take control of all open clients immediately
-      return self.clients.claim();
+    )
+    // Step 2: Take control of all clients
+    .then(() => self.clients.claim())
+    // Step 3: Force reload ALL open windows/tabs
+    // This is critical for PWA standalone mode where the old app code
+    // doesn't have the update banner. By reloading, we ensure the
+    // latest HTML/JS/CSS is fetched from the network.
+    .then(() => {
+      return self.clients.matchAll({ type: 'window' }).then(clients => {
+        clients.forEach(client => {
+          client.navigate(client.url);
+        });
+      });
     })
   );
 });
 
 self.addEventListener('fetch', (e) => {
   // Network-only: always go to network, never cache
-  // This ensures users always get the latest version
   if (e.request.method !== 'GET') return;
 
   e.respondWith(
     fetch(e.request).catch(() => {
-      // If network fails and it's a navigation request, show offline message
       if (e.request.mode === 'navigate') {
         return new Response(
           '<html><body style="font-family:sans-serif;text-align:center;padding:60px 20px"><h2>오프라인 상태</h2><p>인터넷 연결을 확인하고 다시 시도해주세요.</p></body></html>',
@@ -40,7 +49,7 @@ self.addEventListener('fetch', (e) => {
   );
 });
 
-// Listen for messages from the main app
+// Listen for messages from the main app (for future update banner flow)
 self.addEventListener('message', (e) => {
   if (e.data === 'skipWaiting') {
     self.skipWaiting();
