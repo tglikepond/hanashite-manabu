@@ -604,6 +604,9 @@ main {
 .note-group-dot.essential { background: #DC2626; }
 .note-group-dot.frequent { background: #D97706; }
 .note-group-dot.useful { background: #059669; }
+.note-group-icon {
+  font-size: 1.1rem; flex-shrink: 0;
+}
 .note-group-title {
   font-size: .82rem; font-weight: 700; color: var(--c-text);
 }

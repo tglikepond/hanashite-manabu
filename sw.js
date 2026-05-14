@@ -1,6 +1,6 @@
 // Service Worker for PWA — v2.0
 // Update strategy: install → wait → show banner → user clicks update → activate
-const SW_VERSION = 'v2.0';
+const SW_VERSION = 'v2.1';
 
 self.addEventListener('install', () => {
   console.log(`[SW ${SW_VERSION}] Installed. Waiting for activation...`);
