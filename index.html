@@ -247,9 +247,51 @@
       </div>
 
       <div class="app-info">
-        <p>話して学ぶ v1.1</p>
+        <p>話して学ぶ v1.2</p>
         <p>한국어 대화 → 일본어 학습</p>
       </div>
+    </section>
+
+    <!-- ===== Ranking Tab ===== -->
+    <section class="tab-content" id="tab-ranking">
+      <div class="ranking-header">
+        <h2 class="ranking-title">🏆 나의 학습 랭킹</h2>
+        <p class="ranking-subtitle">자주 등장하고 저장한 표현을 한눈에 확인하세요</p>
+      </div>
+
+      <div class="ranking-section">
+        <div class="ranking-section-header">
+          <span class="ranking-section-icon">📊</span>
+          <div>
+            <h3>가장 많이 정리된 표현</h3>
+            <p>AI 분석에서 자주 등장한 표현 TOP 10</p>
+          </div>
+        </div>
+        <div id="ranking-analyzed-list" class="ranking-list"></div>
+        <div id="ranking-analyzed-empty" class="ranking-empty hidden">
+          <p>아직 학습 정리 데이터가 없습니다</p>
+          <p class="ranking-empty-hint">대화를 수집하고 학습 정리를 만들어보세요!</p>
+        </div>
+      </div>
+
+      <div class="ranking-section">
+        <div class="ranking-section-header">
+          <span class="ranking-section-icon">⭐</span>
+          <div>
+            <h3>가장 많이 저장된 표현</h3>
+            <p>내가 직접 저장한 중요 표현 TOP 10</p>
+          </div>
+        </div>
+        <div id="ranking-saved-list" class="ranking-list"></div>
+        <div id="ranking-saved-empty" class="ranking-empty hidden">
+          <p>아직 저장된 표현이 없습니다</p>
+          <p class="ranking-empty-hint">학습 정리에서 마음에 드는 표현을 저장해보세요!</p>
+        </div>
+      </div>
+
+      <button class="btn btn-outline btn-sm" id="ranking-reset-btn" style="width:100%;margin-top:16px">
+        🗑️ 분석 통계 초기화
+      </button>
     </section>
   </main>
 
@@ -271,6 +313,14 @@
           fill="none" />
       </svg>
       <span>노트</span>
+    </button>
+    <button class="nav-item" data-tab="ranking" id="nav-ranking">
+      <svg viewBox="0 0 24 24" stroke-linecap="round">
+        <path d="M12 15l-2 5h4l-2-5z" stroke="currentColor" stroke-width="2" fill="none" />
+        <path d="M8 21h8" stroke="currentColor" stroke-width="2" />
+        <path d="M12 2l3 6h6l-5 4 2 6-6-4-6 4 2-6-5-4h6z" stroke="currentColor" stroke-width="2" fill="none" />
+      </svg>
+      <span>랭킹</span>
     </button>
     <button class="nav-item" data-tab="settings" id="nav-settings">
       <svg viewBox="0 0 24 24" stroke-linecap="round">

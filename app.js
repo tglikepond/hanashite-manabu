@@ -957,6 +957,126 @@ async function renderNotes() {
   }
 }
 
+// ===== Ranking System =====
+const STATS_KEY = 'expression_analysis_stats';
+
+function getAnalysisStats() {
+  try {
+    return JSON.parse(localStorage.getItem(STATS_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function trackAnalyzedExpressions(expressions) {
+  const stats = getAnalysisStats();
+  for (const expr of expressions) {
+    const key = expr.korean?.trim();
+    if (!key) continue;
+    if (stats[key]) {
+      stats[key].count++;
+      stats[key].lastSeen = Date.now();
+    } else {
+      stats[key] = {
+        count: 1,
+        japanese: expr.japanese,
+        reading: expr.reading,
+        pronunciation: expr.pronunciation || '',
+        importance: expr.importance || '유용',
+        lastSeen: Date.now(),
+      };
+    }
+  }
+  localStorage.setItem(STATS_KEY, JSON.stringify(stats));
+}
+
+function getTopAnalyzed(limit = 10) {
+  const stats = getAnalysisStats();
+  return Object.entries(stats)
+    .map(([korean, data]) => ({ korean, ...data }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, limit);
+}
+
+function renderRankingCard(item, rank, maxCount, type) {
+  const percent = maxCount > 0 ? Math.round((item.count / maxCount) * 100) : 0;
+  const medals = ['\ud83e\udd47', '\ud83e\udd48', '\ud83e\udd49'];
+  const rankDisplay = rank <= 3 ? medals[rank - 1] : `<span class="rank-num">${rank}</span>`;
+
+  const card = document.createElement('div');
+  card.className = 'ranking-card';
+  card.innerHTML = `
+    <div class="ranking-card-rank">${rankDisplay}</div>
+    <div class="ranking-card-content">
+      <div class="ranking-card-jp">${item.japanese || ''}</div>
+      <div class="ranking-card-kr">${item.korean || ''}</div>
+      ${item.pronunciation ? `<div class="ranking-card-pron">${item.pronunciation}</div>` : ''}
+    </div>
+    <div class="ranking-card-stat">
+      <span class="ranking-card-count">${item.count}${type === 'analyzed' ? '\ud68c' : ''}</span>
+      <div class="ranking-bar-track">
+        <div class="ranking-bar-fill" style="width:${percent}%"></div>
+      </div>
+    </div>
+  `;
+  return card;
+}
+
+async function renderRanking() {
+  const analyzedList = $('#ranking-analyzed-list');
+  const analyzedEmpty = $('#ranking-analyzed-empty');
+  const savedList = $('#ranking-saved-list');
+  const savedEmpty = $('#ranking-saved-empty');
+
+  // --- Top Analyzed ---
+  const topAnalyzed = getTopAnalyzed(10);
+  analyzedList.innerHTML = '';
+  if (topAnalyzed.length === 0) {
+    analyzedEmpty.classList.remove('hidden');
+  } else {
+    analyzedEmpty.classList.add('hidden');
+    const maxCount = topAnalyzed[0].count;
+    topAnalyzed.forEach((item, i) => {
+      analyzedList.appendChild(renderRankingCard(item, i + 1, maxCount, 'analyzed'));
+    });
+  }
+
+  // --- Top Saved ---
+  const allSaved = await getAllExpressions();
+  savedList.innerHTML = '';
+  if (allSaved.length === 0) {
+    savedEmpty.classList.remove('hidden');
+  } else {
+    savedEmpty.classList.add('hidden');
+    // Count saved expressions by korean phrase
+    const savedCounts = {};
+    for (const expr of allSaved) {
+      const key = expr.korean?.trim();
+      if (!key) continue;
+      if (savedCounts[key]) {
+        savedCounts[key].count++;
+      } else {
+        savedCounts[key] = {
+          count: 1,
+          korean: key,
+          japanese: expr.japanese,
+          reading: expr.reading,
+          pronunciation: expr.pronunciation || '',
+          importance: expr.importance || '유용',
+          savedAt: expr.savedAt,
+        };
+      }
+    }
+    const topSaved = Object.values(savedCounts)
+      .sort((a, b) => b.count - a.count || new Date(b.savedAt) - new Date(a.savedAt))
+      .slice(0, 10);
+    const maxSaved = topSaved[0]?.count || 1;
+    topSaved.forEach((item, i) => {
+      savedList.appendChild(renderRankingCard(item, i + 1, maxSaved, 'saved'));
+    });
+  }
+}
+
 // ===== Event Handlers =====
 function initEvents() {
   // Tab navigation
@@ -968,6 +1088,7 @@ function initEvents() {
       $$('.tab-content').forEach(tc => tc.classList.remove('active'));
       $(`#tab-${tab}`).classList.add('active');
       if (tab === 'notes') renderNotes();
+      if (tab === 'ranking') renderRanking();
     });
   });
 
@@ -1003,6 +1124,8 @@ function initEvents() {
       els.loadingArea.classList.add('hidden');
 
       if (result?.expressions?.length) {
+        // Track analysis stats for ranking
+        trackAnalyzedExpressions(result.expressions);
         renderStudyPaper(result);
         els.resultsArea.classList.remove('hidden');
         showToast(`✨ ${result.expressions.length}개 핵심 표현을 찾았습니다`);
@@ -1105,6 +1228,18 @@ function initEvents() {
       showToast('모든 데이터가 삭제되었습니다');
     }
   });
+
+  // Ranking reset
+  const rankingResetBtn = $('#ranking-reset-btn');
+  if (rankingResetBtn) {
+    rankingResetBtn.addEventListener('click', () => {
+      if (confirm('분석 통계를 초기화하시겠습니까?\n저장된 표현은 유지됩니다.')) {
+        localStorage.removeItem(STATS_KEY);
+        renderRanking();
+        showToast('분석 통계가 초기화되었습니다');
+      }
+    });
+  }
 }
 
 // ===== Helpers =====
