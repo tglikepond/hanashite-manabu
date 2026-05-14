@@ -41,6 +41,7 @@ let confidenceHistory = [];
 let listenStartTime = null;
 let listenTimerInterval = null;
 let wakeLock = null;
+let lowConfidenceStreak = 0;
 
 // ===== DOM Elements =====
 const $ = (sel) => document.querySelector(sel);
@@ -211,13 +212,18 @@ function initSpeechRecognition() {
 
       // Dedup: check if this text is substantially the same as the last committed segment
       if (trimmed && !isDuplicate(trimmed, lastCommittedSegment)) {
-        // Only accept results with reasonable confidence (> 0.3)
-        if (lastConfidence > 0.3) {
+        // Accept results with reasonable confidence (> 0.15)
+        if (lastConfidence > 0.15) {
           state.transcript += trimmed + ' ';
           lastCommittedSegment = trimmed;
         } else {
-          // Very low confidence — skip silently but log
+          // Very low confidence — show warning to user
           console.warn(`Low confidence result skipped (${(lastConfidence * 100).toFixed(0)}%): "${trimmed}"`);
+          lowConfidenceStreak = (lowConfidenceStreak || 0) + 1;
+          if (lowConfidenceStreak >= 3) {
+            showToast('🔇 소리가 잘 들리지 않습니다. 마이크에 가까이 대고 말해주세요.');
+            lowConfidenceStreak = 0;
+          }
         }
       }
       state.interimTranscript = '';
@@ -398,11 +404,21 @@ function stopAudioProcessing() {
 }
 
 async function startListening() {
-  if (!checkSecureContext()) return;
-  if (!recognition && !initSpeechRecognition()) return;
+  if (!checkSecureContext()) {
+    showToast('⚠️ HTTPS 연결이 필요합니다. 보안 URL로 접속해주세요.');
+    return;
+  }
+  if (!recognition && !initSpeechRecognition()) {
+    showToast('⚠️ 이 브라우저에서는 음성 인식이 지원되지 않습니다.');
+    return;
+  }
 
   // Initialize audio processing for noise gate & visual feedback
-  await initAudioProcessing();
+  try {
+    await initAudioProcessing();
+  } catch (err) {
+    console.warn('Audio processing init skipped:', err);
+  }
 
   // Request wake lock to prevent screen sleep during recording
   await requestWakeLock();
@@ -418,12 +434,32 @@ async function startListening() {
   updateListenTimer();
   listenTimerInterval = setInterval(updateListenTimer, 1000);
 
-  try { recognition.start(); } catch (e) { /* already started */ }
+  try {
+    recognition.start();
+  } catch (e) {
+    console.error('Recognition start failed:', e);
+    // If already started, try stopping and restarting
+    try {
+      recognition.stop();
+      setTimeout(() => {
+        try { recognition.start(); } catch (e2) {
+          showToast('⚠️ 음성 인식 시작에 실패했습니다. 페이지를 새로고침해주세요.');
+          state.isListening = false;
+          return;
+        }
+      }, 300);
+    } catch (e2) {
+      showToast('⚠️ 음성 인식 시작에 실패했습니다. 페이지를 새로고침해주세요.');
+      state.isListening = false;
+      return;
+    }
+  }
   els.micBtn.classList.add('listening');
   els.waveform.classList.add('active');
   els.micStatus.textContent = '대화를 듣고 있습니다... (최대 30분)';
   els.micStatus.classList.add('active');
   if (els.confidenceIndicator) els.confidenceIndicator.classList.remove('hidden');
+  showToast('🎤 마이크가 활성화되었습니다. 한국어로 말해주세요.');
 }
 
 function stopListening() {
