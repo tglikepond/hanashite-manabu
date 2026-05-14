@@ -1656,30 +1656,38 @@ async function init() {
     els.apiModal.classList.add('active');
   }
 
-  // Register service worker with auto-update (required for PWA install)
+  // Register service worker with update banner (required for PWA install)
   if ('serviceWorker' in navigator) {
+    let newWorkerWaiting = null;
+
     navigator.serviceWorker.register('sw.js').then((reg) => {
       // Check for updates on every page load
       reg.update();
 
-      // Check for updates periodically (every 1 minute for faster propagation)
-      setInterval(() => reg.update(), 60 * 1000);
+      // Check for updates periodically (every 2 minutes)
+      setInterval(() => reg.update(), 2 * 60 * 1000);
 
-      // When a new SW is found, activate it immediately and reload
+      // When a new SW is found, show update banner instead of auto-reloading
       reg.addEventListener('updatefound', () => {
         const newWorker = reg.installing;
         if (!newWorker) return;
 
         newWorker.addEventListener('statechange', () => {
-          if (newWorker.state === 'activated') {
-            // New version activated — reload to use latest code
-            console.log('[App] New version activated, reloading...');
-            window.location.reload();
+          // New SW is installed and waiting to activate
+          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            newWorkerWaiting = newWorker;
+            showUpdateBanner();
           }
         });
       });
 
-      // Handle controller change (when a new SW takes over)
+      // Also check if there's already a waiting SW (from a previous visit)
+      if (reg.waiting) {
+        newWorkerWaiting = reg.waiting;
+        showUpdateBanner();
+      }
+
+      // Handle controller change (when user accepts the update)
       let refreshing = false;
       navigator.serviceWorker.addEventListener('controllerchange', () => {
         if (!refreshing) {
@@ -1688,6 +1696,32 @@ async function init() {
         }
       });
     }).catch((err) => console.warn('SW registration failed:', err));
+
+    function showUpdateBanner() {
+      const banner = document.getElementById('update-banner');
+      if (!banner) return;
+      requestAnimationFrame(() => banner.classList.add('show'));
+
+      const acceptBtn = document.getElementById('update-btn-accept');
+      const dismissBtn = document.getElementById('update-btn-dismiss');
+
+      if (acceptBtn) {
+        acceptBtn.onclick = () => {
+          acceptBtn.textContent = '적용 중...';
+          acceptBtn.disabled = true;
+          // Tell the waiting SW to activate
+          if (newWorkerWaiting) {
+            newWorkerWaiting.postMessage('skipWaiting');
+          }
+        };
+      }
+
+      if (dismissBtn) {
+        dismissBtn.onclick = () => {
+          banner.classList.remove('show');
+        };
+      }
+    }
   }
 
   // PWA Install Prompt

@@ -1140,6 +1140,96 @@ main {
   padding: 2px 0;
 }
 
+/* ===== Update Banner ===== */
+.update-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10000;
+  padding: 0;
+  transform: translateY(-120%);
+  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.update-banner.show {
+  transform: translateY(0);
+}
+.update-banner-content {
+  background: linear-gradient(135deg, #1B4332 0%, #2D6A4F 50%, #40916C 100%);
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
+}
+.update-banner-icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+  animation: spin 2s linear infinite;
+}
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+.update-banner.show .update-banner-icon {
+  animation: spin 2s linear 1;
+}
+.update-banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: #fff;
+  flex: 1;
+  min-width: 0;
+}
+.update-banner-text strong {
+  font-size: 14px;
+  font-weight: 700;
+}
+.update-banner-text span {
+  font-size: 11px;
+  opacity: 0.85;
+  line-height: 1.3;
+}
+.update-banner-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.update-btn-accept {
+  background: #fff;
+  color: #1B4332;
+  border: none;
+  padding: 8px 18px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.update-btn-accept:hover {
+  background: #D8F3DC;
+  transform: scale(1.05);
+}
+.update-btn-accept:active {
+  transform: scale(0.95);
+}
+.update-btn-dismiss {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.update-btn-dismiss:hover {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
 /* Standalone PWA adjustments */
 .pwa-standalone .bottom-nav {
   padding-bottom: env(safe-area-inset-bottom, 0px);
