@@ -1,34 +1,22 @@
-// Service Worker for PWA — v1.8
-// Versioned to force browser to detect changes and update the SW
-const SW_VERSION = 'v1.8';
+// Service Worker for PWA — v2.0
+// Update strategy: install → wait → show banner → user clicks update → activate
+const SW_VERSION = 'v2.0';
 
 self.addEventListener('install', () => {
-  console.log(`[SW ${SW_VERSION}] Installing...`);
-  // CRITICAL: Skip waiting immediately so this new SW activates right away
-  // This is essential for users stuck on old versions without update banner
-  self.skipWaiting();
+  console.log(`[SW ${SW_VERSION}] Installed. Waiting for activation...`);
+  // Do NOT call skipWaiting() here!
+  // We want the new SW to wait so the app can show an update banner.
+  // skipWaiting() is called only when the user clicks "Update" in the banner,
+  // which sends a 'skipWaiting' message (see below).
 });
 
 self.addEventListener('activate', (e) => {
   console.log(`[SW ${SW_VERSION}] Activating...`);
   e.waitUntil(
-    // Step 1: Clear ALL old caches
+    // Clear all old caches
     caches.keys().then((keys) =>
       Promise.all(keys.map((k) => caches.delete(k)))
-    )
-    // Step 2: Take control of all clients
-    .then(() => self.clients.claim())
-    // Step 3: Force reload ALL open windows/tabs
-    // This is critical for PWA standalone mode where the old app code
-    // doesn't have the update banner. By reloading, we ensure the
-    // latest HTML/JS/CSS is fetched from the network.
-    .then(() => {
-      return self.clients.matchAll({ type: 'window' }).then(clients => {
-        clients.forEach(client => {
-          client.navigate(client.url);
-        });
-      });
-    })
+    ).then(() => self.clients.claim())
   );
 });
 
@@ -49,9 +37,10 @@ self.addEventListener('fetch', (e) => {
   );
 });
 
-// Listen for messages from the main app (for future update banner flow)
+// When the user clicks "Update" in the banner, the app sends this message
 self.addEventListener('message', (e) => {
   if (e.data === 'skipWaiting') {
+    console.log(`[SW ${SW_VERSION}] skipWaiting triggered by user`);
     self.skipWaiting();
   }
 });
