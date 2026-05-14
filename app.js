@@ -751,6 +751,10 @@ const SYSTEM_PROMPT = `당신은 한국어-일본어 전문 번역가이자 일�
 10. 발음 표기는 로마자(romaji)가 아닌 한글로 작성하세요 (예: "오하요 고자이마스", "와타시와", "이쿠요")
 11. 예문의 발음도 한글로 표기하세요
 12. 반대 스타일 번역의 발음도 한글로 표기하세요
+13. 2개 이상의 단어가 조합된 표현이나 문장의 경우, word_composition 필드에 어떤 단어들이 합쳐진 것인지 구성 분석을 제공하세요
+    - 예: "食べてみる" → "食べる(먹다) + てみる(~해보다) = 먹어보다"
+    - 예: "行かなければならない" → "行く(가다) + なければならない(~해야 한다) = 가야 한다"
+    - 단일 단어(한 단어로 된 표현)인 경우 word_composition은 빈 문자열로 두세요
 
 반드시 아래 JSON 형식으로만 응답하세요:
 {
@@ -768,6 +772,7 @@ const SYSTEM_PROMPT = `당신은 한국어-일본어 전문 번역가이자 일�
       "alt_reading": "반대 스타일 히라가나",
       "alt_pronunciation": "반대 스타일 한글 발음",
       "explanation": "간단한 문법/표현 해설 (한국어)",
+      "word_composition": "2개 이상 단어 조합인 경우 구성 분석 (예: 食べる(먹다) + てみる(~해보다) = 먹어보다), 단일 단어면 빈 문자열",
       "example": "이 표현을 활용한 자연스러운 일본어 예문 1개",
       "example_pronunciation": "예문의 한글 발음 표기"
     }
@@ -930,10 +935,10 @@ function getImportanceClass(importance) {
 
 function getImportanceIcon(importance) {
   switch (importance) {
-    case '필수': return '🔴';
-    case '자주사용': return '🟡';
-    case '유용': return '🟢';
-    default: return '🟢';
+    case '필수': return '필수';
+    case '자주사용': return '자주';
+    case '유용': return '유용';
+    default: return '유용';
   }
 }
 
@@ -941,14 +946,36 @@ function renderExpressionCard(expr, isSaved = false) {
   const styleClass = expr.detected_style === '반말' ? 'casual' : 'polite';
   const altLabel = expr.alt_style === '반말' ? '반말 버전' : '존댓말 버전';
   const importanceClass = getImportanceClass(expr.importance);
-  const importanceIcon = getImportanceIcon(expr.importance);
   // Support both old field (romaji) and new field (pronunciation) for backward compatibility
   const pronunciation = expr.pronunciation || expr.romaji || '';
   const altPronunciation = expr.alt_pronunciation || '';
   const examplePronunciation = expr.example_pronunciation || '';
+  const wordComposition = expr.word_composition || '';
+  const isMastered = expr.mastered || false;
 
   const card = document.createElement('div');
-  card.className = 'expr-card expr-card-collapsed';
+  card.className = `expr-card expr-card-collapsed ${importanceClass}${isMastered ? ' mastered' : ''}`;
+
+  // Build collapsed summary right-side content
+  let summaryRightHtml = '';
+  if (isSaved) {
+    // Notes tab: mastery checkbox
+    summaryRightHtml = `
+      <label class="mastery-check" title="숙지 완료">
+        <input type="checkbox" ${isMastered ? 'checked' : ''}>
+        <span class="checkmark"></span>
+      </label>
+    `;
+  } else {
+    // Listen tab: save button
+    summaryRightHtml = `
+      <button class="card-summary-action card-summary-save" title="저장">
+        <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        저장
+      </button>
+    `;
+  }
+
   card.innerHTML = `
     <div class="card-summary" role="button" tabindex="0" aria-expanded="false">
       <div class="card-summary-content">
@@ -956,19 +983,25 @@ function renderExpressionCard(expr, isSaved = false) {
         <span class="card-summary-kr">${escHtml(expr.korean)}</span>
       </div>
       <div class="card-summary-right">
-        <span class="importance-badge ${importanceClass}">${importanceIcon}</span>
+        ${summaryRightHtml}
         <svg class="card-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
       </div>
     </div>
     <div class="card-detail">
       <div class="card-top">
-        <span class="importance-badge ${importanceClass}">${importanceIcon} ${escHtml(expr.importance || '유용')}</span>
+        <span class="importance-badge ${importanceClass}">${escHtml(expr.importance || '유용')}</span>
         <span class="style-badge ${styleClass}">${expr.detected_style}</span>
       </div>
       <div class="card-korean">"${escHtml(expr.korean)}"</div>
       <div class="card-japanese">${escHtml(expr.japanese)}</div>
       <div class="card-reading">${escHtml(expr.reading)}</div>
       <div class="card-pronunciation">${escHtml(pronunciation)}</div>
+      ${wordComposition ? `
+      <div class="card-composition">
+        <div class="label">🧩 구성 분석</div>
+        <div class="comp-text">${escHtml(wordComposition)}</div>
+      </div>
+      ` : ''}
       ${expr.example ? `
       <div class="card-example">
         <div class="label">📝 예문</div>
@@ -1008,8 +1041,8 @@ function renderExpressionCard(expr, isSaved = false) {
   // Toggle expand/collapse on summary click
   const summaryEl = card.querySelector('.card-summary');
   summaryEl.addEventListener('click', (e) => {
-    // Don't toggle if clicking a button inside
-    if (e.target.closest('.card-actions')) return;
+    // Don't toggle if clicking an action button or checkbox
+    if (e.target.closest('.card-summary-action') || e.target.closest('.mastery-check')) return;
     card.classList.toggle('expr-card-collapsed');
     card.classList.toggle('expr-card-expanded');
     const isExpanded = card.classList.contains('expr-card-expanded');
@@ -1024,6 +1057,7 @@ function renderExpressionCard(expr, isSaved = false) {
 
   // Event listeners
   if (isSaved) {
+    // Delete button
     card.querySelector('.delete-btn')?.addEventListener('click', async (e) => {
       e.stopPropagation();
       await deleteExpression(expr.id);
@@ -1033,8 +1067,40 @@ function renderExpressionCard(expr, isSaved = false) {
       setTimeout(() => { card.remove(); renderNotes(); }, 300);
       showToast('표현이 삭제되었습니다');
     });
+
+    // Mastery checkbox
+    const masteryCheckbox = card.querySelector('.mastery-check input');
+    if (masteryCheckbox) {
+      masteryCheckbox.addEventListener('change', async (e) => {
+        e.stopPropagation();
+        const checked = masteryCheckbox.checked;
+        card.classList.toggle('mastered', checked);
+        // Update in IndexedDB
+        try {
+          const tx = state.db.transaction(STORE_NAME, 'readwrite');
+          const store = tx.objectStore(STORE_NAME);
+          const record = await new Promise((resolve, reject) => {
+            const req = store.get(expr.id);
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+          });
+          if (record) {
+            record.mastered = checked;
+            store.put(record);
+          }
+        } catch (err) {
+          console.warn('Failed to update mastery:', err);
+        }
+        showToast(checked ? '✅ 숙지 완료로 표시했습니다' : '↩️ 미숙지로 변경했습니다');
+      });
+    }
   } else {
-    card.querySelector('.save-btn')?.addEventListener('click', async (e) => {
+    // Summary save button (collapsed state)
+    const summSaveBtn = card.querySelector('.card-summary-save');
+    // Detail save button (expanded state)
+    const detailSaveBtn = card.querySelector('.save-btn');
+
+    const doSave = async (e) => {
       e.stopPropagation();
       const exprToSave = {
         korean: expr.korean,
@@ -1048,17 +1114,20 @@ function renderExpressionCard(expr, isSaved = false) {
         alt_reading: expr.alt_reading,
         alt_pronunciation: altPronunciation,
         explanation: expr.explanation,
+        word_composition: wordComposition,
         example: expr.example,
         example_pronunciation: examplePronunciation,
       };
       await saveExpression(exprToSave);
       trackSavedExpression(exprToSave); // Global ranking
-      const btn = card.querySelector('.save-btn');
-      btn.innerHTML = '✓ 저장됨';
-      btn.disabled = true;
-      btn.style.opacity = '.5';
+      // Update both buttons
+      if (summSaveBtn) { summSaveBtn.innerHTML = '✓ 저장됨'; summSaveBtn.classList.add('saved'); }
+      if (detailSaveBtn) { detailSaveBtn.innerHTML = '✓ 저장됨'; detailSaveBtn.disabled = true; detailSaveBtn.style.opacity = '.5'; }
       showToast('표현이 저장되었습니다');
-    });
+    };
+
+    if (summSaveBtn) summSaveBtn.addEventListener('click', doSave);
+    if (detailSaveBtn) detailSaveBtn.addEventListener('click', doSave);
   }
 
   return card;
@@ -1133,16 +1202,66 @@ async function renderNotes() {
     return sort === 'newest' ? db2 - da : da - db2;
   });
 
-  els.notesCount.textContent = `저장된 표현 ${expressions.length}개`;
+  const masteredCount = expressions.filter(e => e.mastered).length;
+  els.notesCount.textContent = `저장된 표현 ${expressions.length}개${masteredCount > 0 ? ` (숙지 ${masteredCount}개)` : ''}`;
   els.notesList.innerHTML = '';
 
   if (expressions.length === 0) {
     els.notesEmpty.classList.remove('hidden');
   } else {
     els.notesEmpty.classList.add('hidden');
-    expressions.forEach(expr => {
-      els.notesList.appendChild(renderExpressionCard(expr, true));
-    });
+
+    // Group by importance
+    const groups = [
+      { key: '필수', label: '필수 표현', dotClass: 'essential', items: [] },
+      { key: '자주사용', label: '자주 사용하는 표현', dotClass: 'frequent', items: [] },
+      { key: '유용', label: '유용한 표현', dotClass: 'useful', items: [] },
+    ];
+
+    for (const expr of expressions) {
+      const group = groups.find(g => g.key === expr.importance) || groups[2]; // default: 유용
+      group.items.push(expr);
+    }
+
+    // If only one group has items or searching, render flat list
+    const nonEmptyGroups = groups.filter(g => g.items.length > 0);
+    if (nonEmptyGroups.length <= 1 || query) {
+      expressions.forEach(expr => {
+        els.notesList.appendChild(renderExpressionCard(expr, true));
+      });
+    } else {
+      // Render grouped
+      for (const group of groups) {
+        if (group.items.length === 0) continue;
+
+        const groupEl = document.createElement('div');
+        groupEl.className = 'note-group';
+
+        const header = document.createElement('div');
+        header.className = 'note-group-header';
+        header.innerHTML = `
+          <div class="note-group-header-left">
+            <span class="note-group-dot ${group.dotClass}"></span>
+            <span class="note-group-title">${group.label}</span>
+            <span class="note-group-count">${group.items.length}</span>
+          </div>
+          <svg class="note-group-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        `;
+        header.addEventListener('click', () => {
+          groupEl.classList.toggle('collapsed');
+        });
+
+        const list = document.createElement('div');
+        list.className = 'note-group-list';
+        group.items.forEach(expr => {
+          list.appendChild(renderExpressionCard(expr, true));
+        });
+
+        groupEl.appendChild(header);
+        groupEl.appendChild(list);
+        els.notesList.appendChild(groupEl);
+      }
+    }
   }
 }
 

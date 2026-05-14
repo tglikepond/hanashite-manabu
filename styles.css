@@ -311,6 +311,9 @@ main {
   transition: box-shadow .2s;
   overflow: hidden;
 }
+.expr-card.importance-essential { border-left-color: #DC2626; }
+.expr-card.importance-frequent { border-left-color: #D97706; }
+.expr-card.importance-useful { border-left-color: #059669; }
 .expr-card:hover { box-shadow: var(--shadow-md); }
 
 /* -- Collapsed summary row -- */
@@ -339,6 +342,68 @@ main {
 .card-summary-right {
   display: flex; align-items: center; gap: 6px;
   flex-shrink: 0;
+}
+
+/* -- Collapsed action buttons (save / checkbox) -- */
+.card-summary-action {
+  display: flex; align-items: center; gap: 4px;
+  padding: 5px 12px; border-radius: var(--r-full);
+  font-size: .72rem; font-weight: 600;
+  transition: all .2s; border: none; cursor: pointer;
+  z-index: 1;
+}
+.card-summary-save {
+  background: var(--c-primary-100); color: var(--c-primary-700);
+}
+.card-summary-save:hover { background: var(--c-primary-200); }
+.card-summary-save:active { transform: scale(.94); }
+.card-summary-save.saved {
+  background: var(--c-surface-alt); color: var(--c-text-3);
+  pointer-events: none;
+}
+.card-summary-save svg { width: 12px; height: 12px; stroke: currentColor; fill: none; stroke-width: 2; }
+
+/* -- Mastery checkbox -- */
+.mastery-check {
+  position: relative;
+  width: 22px; height: 22px;
+  flex-shrink: 0; cursor: pointer;
+}
+.mastery-check input {
+  position: absolute; opacity: 0; width: 0; height: 0;
+}
+.mastery-check .checkmark {
+  position: absolute; inset: 0;
+  border: 2px solid var(--c-border);
+  border-radius: 6px;
+  transition: all .2s;
+  background: var(--c-card);
+}
+.mastery-check input:checked + .checkmark {
+  background: var(--c-primary-600);
+  border-color: var(--c-primary-600);
+}
+.mastery-check .checkmark::after {
+  content: ''; position: absolute;
+  left: 6px; top: 2px;
+  width: 5px; height: 10px;
+  border: solid #fff; border-width: 0 2px 2px 0;
+  transform: rotate(45deg) scale(0);
+  transition: transform .15s ease;
+}
+.mastery-check input:checked + .checkmark::after {
+  transform: rotate(45deg) scale(1);
+}
+.mastery-check:hover .checkmark {
+  border-color: var(--c-primary-400);
+}
+.expr-card.mastered {
+  opacity: .6;
+}
+.expr-card.mastered .card-summary-jp,
+.expr-card.mastered .card-summary-kr {
+  text-decoration: line-through;
+  text-decoration-color: var(--c-text-3);
 }
 .card-chevron {
   stroke: var(--c-text-3);
@@ -428,6 +493,22 @@ main {
   font-size: .72rem; letter-spacing: .5px;
 }
 
+/* -- Word composition analysis -- */
+.card-composition {
+  background: linear-gradient(135deg, #FFF7ED 0%, #FFEDD5 100%);
+  border-radius: var(--r-sm);
+  padding: 10px 12px; margin-bottom: 10px;
+  border: 1px solid #FED7AA;
+}
+.card-composition .label {
+  font-weight: 700; color: #92400E; margin-bottom: 4px;
+  font-size: .72rem; letter-spacing: .5px;
+}
+.card-composition .comp-text {
+  font-family: var(--font-jp); font-size: .82rem;
+  color: #78350F; line-height: 1.7;
+}
+
 .card-alt {
   background: var(--c-surface-alt); border-radius: var(--r-sm);
   padding: 10px 12px; margin-bottom: 12px;
@@ -491,6 +572,54 @@ main {
   padding: 6px 12px; border: 1px solid var(--c-border);
   border-radius: var(--r-sm); font-size: .8rem; color: var(--c-text-2);
   background: var(--c-card); outline: none;
+}
+
+/* -- Note Group Sections -- */
+.note-group {
+  margin-bottom: 16px;
+}
+.note-group-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px; margin-bottom: 8px;
+  background: var(--c-card);
+  border-radius: var(--r-md);
+  border: 1px solid var(--c-border);
+  cursor: pointer; user-select: none;
+  transition: background .15s;
+}
+.note-group-header:hover { background: var(--c-primary-50); }
+.note-group-header-left {
+  display: flex; align-items: center; gap: 8px;
+}
+.note-group-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%; flex-shrink: 0;
+}
+.note-group-dot.essential { background: #DC2626; }
+.note-group-dot.frequent { background: #D97706; }
+.note-group-dot.useful { background: #059669; }
+.note-group-title {
+  font-size: .82rem; font-weight: 700; color: var(--c-text);
+}
+.note-group-count {
+  font-size: .72rem; font-weight: 600; color: var(--c-text-3);
+  background: var(--c-surface-alt);
+  padding: 2px 8px; border-radius: var(--r-full);
+}
+.note-group-chevron {
+  stroke: var(--c-text-3);
+  transition: transform .3s cubic-bezier(.4,0,.2,1);
+  flex-shrink: 0;
+}
+.note-group.collapsed .note-group-chevron {
+  transform: rotate(-90deg);
+}
+.note-group-list {
+  display: flex; flex-direction: column; gap: 8px;
+  transition: max-height .4s ease, opacity .3s ease;
+}
+.note-group.collapsed .note-group-list {
+  max-height: 0; opacity: 0; overflow: hidden;
 }
 
 .empty-state {
