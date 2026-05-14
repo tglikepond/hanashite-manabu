@@ -17,6 +17,8 @@ const state = {
   interimTranscript: '',
   apiKey: localStorage.getItem('gemini_api_key') || '',
   model: localStorage.getItem('gemini_model') || 'gemini-2.0-flash-lite',
+  supabaseUrl: localStorage.getItem('supabase_url') || '',
+  supabaseKey: localStorage.getItem('supabase_key') || '',
   db: null,
 };
 
@@ -864,6 +866,7 @@ function renderExpressionCard(expr, isSaved = false) {
         example_pronunciation: examplePronunciation,
       };
       await saveExpression(exprToSave);
+      trackSavedExpression(exprToSave); // Global ranking
       const btn = card.querySelector('.save-btn');
       btn.innerHTML = '✓ 저장됨';
       btn.disabled = true;
@@ -957,9 +960,58 @@ async function renderNotes() {
   }
 }
 
-// ===== Ranking System =====
+// ===== Ranking System (Supabase Global) =====
 const STATS_KEY = 'expression_analysis_stats';
 
+function isSupabaseConfigured() {
+  return state.supabaseUrl && state.supabaseKey;
+}
+
+function supabaseHeaders() {
+  return {
+    'apikey': state.supabaseKey,
+    'Authorization': `Bearer ${state.supabaseKey}`,
+    'Content-Type': 'application/json',
+    'Prefer': 'return=minimal',
+  };
+}
+
+// --- Supabase API: Read global rankings ---
+async function getGlobalRankings(orderBy = 'analyze_count', limit = 10) {
+  if (!isSupabaseConfigured()) return null;
+  try {
+    const url = `${state.supabaseUrl}/rest/v1/expression_rankings?select=*&order=${orderBy}.desc&limit=${limit}`;
+    const res = await fetch(url, { headers: supabaseHeaders() });
+    if (!res.ok) throw new Error(`Supabase error: ${res.status}`);
+    return await res.json();
+  } catch (err) {
+    console.warn('Global ranking fetch failed:', err.message);
+    return null;
+  }
+}
+
+// --- Supabase API: Increment expression stats via RPC ---
+async function incrementGlobalStat(expr, countType = 'analyze') {
+  if (!isSupabaseConfigured()) return;
+  try {
+    const url = `${state.supabaseUrl}/rest/v1/rpc/increment_expression_stat`;
+    await fetch(url, {
+      method: 'POST',
+      headers: supabaseHeaders(),
+      body: JSON.stringify({
+        p_korean: expr.korean?.trim() || '',
+        p_japanese: expr.japanese || '',
+        p_reading: expr.reading || '',
+        p_pronunciation: expr.pronunciation || '',
+        p_count_type: countType,
+      }),
+    });
+  } catch (err) {
+    console.warn('Global stat increment failed:', err.message);
+  }
+}
+
+// --- Local stats (fallback) ---
 function getAnalysisStats() {
   try {
     return JSON.parse(localStorage.getItem(STATS_KEY) || '{}');
@@ -969,6 +1021,7 @@ function getAnalysisStats() {
 }
 
 function trackAnalyzedExpressions(expressions) {
+  // Local tracking
   const stats = getAnalysisStats();
   for (const expr of expressions) {
     const key = expr.korean?.trim();
@@ -988,6 +1041,19 @@ function trackAnalyzedExpressions(expressions) {
     }
   }
   localStorage.setItem(STATS_KEY, JSON.stringify(stats));
+
+  // Global tracking (fire-and-forget)
+  if (isSupabaseConfigured()) {
+    for (const expr of expressions) {
+      incrementGlobalStat(expr, 'analyze');
+    }
+  }
+}
+
+function trackSavedExpression(expr) {
+  if (isSupabaseConfigured()) {
+    incrementGlobalStat(expr, 'save');
+  }
 }
 
 function getTopAnalyzed(limit = 10) {
@@ -999,7 +1065,8 @@ function getTopAnalyzed(limit = 10) {
 }
 
 function renderRankingCard(item, rank, maxCount, type) {
-  const percent = maxCount > 0 ? Math.round((item.count / maxCount) * 100) : 0;
+  const count = type === 'analyzed' ? (item.analyze_count || item.count || 0) : (item.save_count || item.count || 0);
+  const percent = maxCount > 0 ? Math.round((count / maxCount) * 100) : 0;
   const medals = ['\ud83e\udd47', '\ud83e\udd48', '\ud83e\udd49'];
   const rankDisplay = rank <= 3 ? medals[rank - 1] : `<span class="rank-num">${rank}</span>`;
 
@@ -1013,7 +1080,7 @@ function renderRankingCard(item, rank, maxCount, type) {
       ${item.pronunciation ? `<div class="ranking-card-pron">${item.pronunciation}</div>` : ''}
     </div>
     <div class="ranking-card-stat">
-      <span class="ranking-card-count">${item.count}${type === 'analyzed' ? '\ud68c' : ''}</span>
+      <span class="ranking-card-count">${count}${type === 'analyzed' ? '\ud68c' : '\ubc88'}</span>
       <div class="ranking-bar-track">
         <div class="ranking-bar-fill" style="width:${percent}%"></div>
       </div>
@@ -1022,33 +1089,93 @@ function renderRankingCard(item, rank, maxCount, type) {
   return card;
 }
 
+function updateConnectionStatus(online) {
+  const el = $('#ranking-connection-status');
+  if (!el) return;
+  if (online) {
+    el.innerHTML = `
+      <span class="ranking-status-dot online"></span>
+      <span>\uae00\ub85c\ubc8c \ub7ad\ud0b9 \uc5f0\uacb0\ub428 \u2014 \ubaa8\ub4e0 \uc0ac\uc6a9\uc790\uc758 \ub370\uc774\ud130\ub97c \ud45c\uc2dc\ud569\ub2c8\ub2e4</span>
+    `;
+  } else {
+    el.innerHTML = `
+      <span class="ranking-status-dot offline"></span>
+      <span>\uc624\ud504\ub77c\uc778 \ubaa8\ub4dc \u2014 \uc124\uc815\uc5d0\uc11c Supabase\ub97c \uc5f0\uacb0\ud558\uba74 \uae00\ub85c\ubc8c \ub7ad\ud0b9\uc744 \ubcfc \uc218 \uc788\uc2b5\ub2c8\ub2e4</span>
+    `;
+  }
+}
+
 async function renderRanking() {
   const analyzedList = $('#ranking-analyzed-list');
   const analyzedEmpty = $('#ranking-analyzed-empty');
   const savedList = $('#ranking-saved-list');
   const savedEmpty = $('#ranking-saved-empty');
 
+  const useGlobal = isSupabaseConfigured();
+
   // --- Top Analyzed ---
-  const topAnalyzed = getTopAnalyzed(10);
   analyzedList.innerHTML = '';
-  if (topAnalyzed.length === 0) {
-    analyzedEmpty.classList.remove('hidden');
+  if (useGlobal) {
+    const globalAnalyzed = await getGlobalRankings('analyze_count', 10);
+    if (globalAnalyzed && globalAnalyzed.length > 0) {
+      updateConnectionStatus(true);
+      analyzedEmpty.classList.add('hidden');
+      const maxCount = globalAnalyzed[0].analyze_count || 1;
+      globalAnalyzed.forEach((item, i) => {
+        analyzedList.appendChild(renderRankingCard(item, i + 1, maxCount, 'analyzed'));
+      });
+    } else if (globalAnalyzed) {
+      updateConnectionStatus(true);
+      analyzedEmpty.classList.remove('hidden');
+    } else {
+      // Fetch failed — fall back to local
+      updateConnectionStatus(false);
+      renderLocalAnalyzed(analyzedList, analyzedEmpty);
+    }
   } else {
-    analyzedEmpty.classList.add('hidden');
-    const maxCount = topAnalyzed[0].count;
-    topAnalyzed.forEach((item, i) => {
-      analyzedList.appendChild(renderRankingCard(item, i + 1, maxCount, 'analyzed'));
-    });
+    updateConnectionStatus(false);
+    renderLocalAnalyzed(analyzedList, analyzedEmpty);
   }
 
   // --- Top Saved ---
-  const allSaved = await getAllExpressions();
   savedList.innerHTML = '';
-  if (allSaved.length === 0) {
-    savedEmpty.classList.remove('hidden');
+  if (useGlobal) {
+    const globalSaved = await getGlobalRankings('save_count', 10);
+    if (globalSaved && globalSaved.length > 0) {
+      savedEmpty.classList.add('hidden');
+      const maxCount = globalSaved[0].save_count || 1;
+      globalSaved.forEach((item, i) => {
+        savedList.appendChild(renderRankingCard(item, i + 1, maxCount, 'saved'));
+      });
+    } else if (globalSaved) {
+      savedEmpty.classList.remove('hidden');
+    } else {
+      renderLocalSaved(savedList, savedEmpty);
+    }
   } else {
-    savedEmpty.classList.add('hidden');
-    // Count saved expressions by korean phrase
+    renderLocalSaved(savedList, savedEmpty);
+  }
+}
+
+function renderLocalAnalyzed(listEl, emptyEl) {
+  const topAnalyzed = getTopAnalyzed(10);
+  if (topAnalyzed.length === 0) {
+    emptyEl.classList.remove('hidden');
+  } else {
+    emptyEl.classList.add('hidden');
+    const maxCount = topAnalyzed[0].count;
+    topAnalyzed.forEach((item, i) => {
+      listEl.appendChild(renderRankingCard(item, i + 1, maxCount, 'analyzed'));
+    });
+  }
+}
+
+async function renderLocalSaved(listEl, emptyEl) {
+  const allSaved = await getAllExpressions();
+  if (allSaved.length === 0) {
+    emptyEl.classList.remove('hidden');
+  } else {
+    emptyEl.classList.add('hidden');
     const savedCounts = {};
     for (const expr of allSaved) {
       const key = expr.korean?.trim();
@@ -1057,12 +1184,8 @@ async function renderRanking() {
         savedCounts[key].count++;
       } else {
         savedCounts[key] = {
-          count: 1,
-          korean: key,
-          japanese: expr.japanese,
-          reading: expr.reading,
-          pronunciation: expr.pronunciation || '',
-          importance: expr.importance || '유용',
+          count: 1, korean: key, japanese: expr.japanese,
+          reading: expr.reading, pronunciation: expr.pronunciation || '',
           savedAt: expr.savedAt,
         };
       }
@@ -1072,7 +1195,7 @@ async function renderRanking() {
       .slice(0, 10);
     const maxSaved = topSaved[0]?.count || 1;
     topSaved.forEach((item, i) => {
-      savedList.appendChild(renderRankingCard(item, i + 1, maxSaved, 'saved'));
+      listEl.appendChild(renderRankingCard(item, i + 1, maxSaved, 'saved'));
     });
   }
 }
@@ -1233,10 +1356,41 @@ function initEvents() {
   const rankingResetBtn = $('#ranking-reset-btn');
   if (rankingResetBtn) {
     rankingResetBtn.addEventListener('click', () => {
-      if (confirm('분석 통계를 초기화하시겠습니까?\n저장된 표현은 유지됩니다.')) {
+      if (confirm('로컬 분석 통계를 초기화하시겠습니까?\n저장된 표현은 유지됩니다.')) {
         localStorage.removeItem(STATS_KEY);
         renderRanking();
-        showToast('분석 통계가 초기화되었습니다');
+        showToast('로컬 분석 통계가 초기화되었습니다');
+      }
+    });
+  }
+
+  // Supabase config save
+  const saveSupabaseBtn = $('#save-supabase-btn');
+  if (saveSupabaseBtn) {
+    saveSupabaseBtn.addEventListener('click', async () => {
+      const url = $('#supabase-url')?.value.trim().replace(/\/$/, '');
+      const key = $('#supabase-key')?.value.trim();
+      state.supabaseUrl = url;
+      state.supabaseKey = key;
+      if (url) localStorage.setItem('supabase_url', url);
+      else localStorage.removeItem('supabase_url');
+      if (key) localStorage.setItem('supabase_key', key);
+      else localStorage.removeItem('supabase_key');
+      updateSupabaseStatus();
+      if (url && key) {
+        // Test connection
+        try {
+          const test = await getGlobalRankings('analyze_count', 1);
+          if (test !== null) {
+            showToast('✅ Supabase 연결 성공! 글로벌 랭킹이 활성화되었습니다');
+          } else {
+            showToast('⚠️ Supabase 연결에 실패했습니다. URL과 키를 확인하세요');
+          }
+        } catch {
+          showToast('⚠️ Supabase 연결에 실패했습니다');
+        }
+      } else {
+        showToast('Supabase 설정이 제거되었습니다 (로컬 모드)');
       }
     });
   }
@@ -1251,6 +1405,24 @@ function updateApiStatus() {
   } else {
     els.apiStatus.className = 'api-status disconnected';
     els.apiStatusText.textContent = '연결되지 않음';
+  }
+}
+
+function updateSupabaseStatus() {
+  const statusEl = $('#supabase-status');
+  const statusText = $('#supabase-status-text');
+  const urlInput = $('#supabase-url');
+  const keyInput = $('#supabase-key');
+  if (urlInput) urlInput.value = state.supabaseUrl;
+  if (keyInput) keyInput.value = state.supabaseKey;
+  if (statusEl && statusText) {
+    if (isSupabaseConfigured()) {
+      statusEl.className = 'api-status connected';
+      statusText.textContent = '연결됨';
+    } else {
+      statusEl.className = 'api-status disconnected';
+      statusText.textContent = '연결되지 않음';
+    }
   }
 }
 
@@ -1286,6 +1458,7 @@ async function init() {
   state.db = await openDB();
   initEvents();
   updateApiStatus();
+  updateSupabaseStatus();
 
   // Restore model selection
   if (els.modelSelect) {
