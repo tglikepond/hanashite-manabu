@@ -150,6 +150,11 @@ async function clearAllExpressions() {
 }
 
 // ===== Speech Recognition =====
+function isStandalonePWA() {
+  return window.matchMedia('(display-mode: standalone)').matches
+    || window.navigator.standalone === true;
+}
+
 function checkSecureContext() {
   if (window.isSecureContext) return true;
   // Show a persistent warning
@@ -282,10 +287,15 @@ function initSpeechRecognition() {
   };
 
   recognition.onerror = (e) => {
+    console.warn('Speech recognition error:', e.error, e);
     if (e.error === 'not-allowed') {
       if (!window.isSecureContext) {
         showToast('⚠️ HTTPS 연결에서만 마이크를 사용할 수 있습니다');
         showSecurityBanner(window.location.href.replace('http://', 'https://'));
+      } else if (isStandalonePWA()) {
+        // In standalone PWA mode, permissions are often blocked
+        showToast('⚠️ 마이크 권한이 차단되었습니다. 브라우저 앱 설정에서 마이크를 허용해주세요.');
+        showMicPermissionGuide();
       } else {
         showToast('마이크 권한이 필요합니다. 브라우저 설정에서 마이크를 허용해주세요.');
       }
@@ -298,6 +308,11 @@ function initSpeechRecognition() {
       // Aborted by user or system — don't restart
     } else if (e.error === 'network') {
       showToast('네트워크 오류가 발생했습니다');
+      stopListening();
+    } else if (e.error === 'service-not-allowed') {
+      // Speech recognition service not available (common in some PWA contexts)
+      showToast('⚠️ 음성 인식 서비스를 사용할 수 없습니다. 브라우저에서 다시 시도해주세요.');
+      state.isListening = false;
       stopListening();
     } else {
       console.warn('Speech error:', e.error);
@@ -332,20 +347,121 @@ function isDuplicate(newText, lastText) {
   return false;
 }
 
-// Initialize AudioContext for noise gate processing
-async function initAudioProcessing() {
+// Show microphone permission guide for standalone PWA users
+function showMicPermissionGuide() {
+  if (document.getElementById('mic-permission-guide')) return;
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const isAndroid = /Android/.test(navigator.userAgent);
+
+  let guideHtml = '';
+  if (isIOS) {
+    guideHtml = `
+      <p><strong>🍎 iPhone/iPad 마이크 권한 설정:</strong></p>
+      <ol>
+        <li>Safari 브라우저에서 이 사이트를 열어주세요</li>
+        <li>Safari에서 마이크 권한을 허용한 후 사용해주세요</li>
+        <li>iOS PWA에서는 음성 인식이 제한될 수 있습니다</li>
+      </ol>
+    `;
+  } else if (isAndroid) {
+    guideHtml = `
+      <p><strong>📱 Android 마이크 권한 설정:</strong></p>
+      <ol>
+        <li><strong>설정 → 앱 → Chrome</strong>에서 마이크 권한을 "허용"으로 변경</li>
+        <li>Chrome 브라우저에서 이 사이트의 마이크 권한을 확인</li>
+        <li>앱을 삭제 후 다시 설치해보세요</li>
+      </ol>
+    `;
+  } else {
+    guideHtml = `
+      <p><strong>🖥️ 마이크 권한 설정:</strong></p>
+      <ol>
+        <li>브라우저 주소창의 자물쇠 아이콘 클릭</li>
+        <li>사이트 설정에서 마이크를 "허용"으로 변경</li>
+        <li>페이지를 새로고침하세요</li>
+      </ol>
+    `;
+  }
+
+  const guide = document.createElement('div');
+  guide.id = 'mic-permission-guide';
+  guide.className = 'mic-permission-guide';
+  guide.innerHTML = `
+    <div class="mic-permission-guide-content">
+      <div class="mic-permission-guide-header">
+        <span>🎤 마이크 권한 안내</span>
+        <button class="mic-permission-guide-close" aria-label="닫기">✕</button>
+      </div>
+      ${guideHtml}
+    </div>
+  `;
+  document.body.appendChild(guide);
+  requestAnimationFrame(() => guide.classList.add('show'));
+
+  guide.querySelector('.mic-permission-guide-close').addEventListener('click', () => {
+    guide.classList.remove('show');
+    setTimeout(() => guide.remove(), 300);
+  });
+}
+
+// Pre-check and request microphone permission (critical for PWA standalone mode)
+async function ensureMicrophonePermission() {
   try {
-    audioStream = await navigator.mediaDevices.getUserMedia({
+    // Check if permissions API is available
+    if (navigator.permissions) {
+      const permStatus = await navigator.permissions.query({ name: 'microphone' });
+      if (permStatus.state === 'denied') {
+        showToast('⚠️ 마이크 권한이 차단되어 있습니다.');
+        showMicPermissionGuide();
+        return false;
+      }
+    }
+
+    // In standalone PWA mode, we MUST request getUserMedia first
+    // to trigger the permission prompt before SpeechRecognition can work
+    const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
         noiseSuppression: true,
         autoGainControl: true,
-        channelCount: 1,
-        sampleRate: 16000,
+      }
+    });
+
+    // Keep the stream for audio processing, don't stop it yet
+    return stream;
+  } catch (err) {
+    console.error('Microphone permission request failed:', err);
+    if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+      showToast('⚠️ 마이크 권한이 거부되었습니다.');
+      showMicPermissionGuide();
+    } else if (err.name === 'NotFoundError') {
+      showToast('⚠️ 마이크 장치를 찾을 수 없습니다.');
+    } else if (err.name === 'NotReadableError' || err.name === 'AbortError') {
+      showToast('⚠️ 마이크가 다른 앱에서 사용 중입니다.');
+    } else {
+      showToast('⚠️ 마이크 접근에 실패했습니다: ' + err.message);
+    }
+    return false;
+  }
+}
+
+// Initialize AudioContext for noise gate processing
+async function initAudioProcessing(existingStream) {
+  try {
+    // Use existing stream from permission request, or request a new one
+    audioStream = existingStream || await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
       }
     });
 
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    // Resume AudioContext if suspended (required by mobile browsers after user gesture)
+    if (audioContext.state === 'suspended') {
+      await audioContext.resume();
+    }
     const source = audioContext.createMediaStreamSource(audioStream);
     analyserNode = audioContext.createAnalyser();
     analyserNode.fftSize = 2048;
@@ -408,14 +524,26 @@ async function startListening() {
     showToast('⚠️ HTTPS 연결이 필요합니다. 보안 URL로 접속해주세요.');
     return;
   }
+
+  // CRITICAL: Request microphone permission FIRST, before initializing SpeechRecognition
+  // In PWA standalone mode, SpeechRecognition often fails to trigger the permission prompt
+  // By requesting getUserMedia first, we ensure the browser grants mic access
+  const micStream = await ensureMicrophonePermission();
+  if (!micStream) {
+    // Permission denied or mic not available
+    return;
+  }
+
   if (!recognition && !initSpeechRecognition()) {
+    // Clean up the mic stream if recognition not supported
+    micStream.getTracks().forEach(t => t.stop());
     showToast('⚠️ 이 브라우저에서는 음성 인식이 지원되지 않습니다.');
     return;
   }
 
-  // Initialize audio processing for noise gate & visual feedback
+  // Initialize audio processing reusing the already-granted mic stream
   try {
-    await initAudioProcessing();
+    await initAudioProcessing(micStream);
   } catch (err) {
     console.warn('Audio processing init skipped:', err);
   }

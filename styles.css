@@ -1070,6 +1070,76 @@ main {
   background: var(--c-primary-100);
 }
 
+/* ===== Mic Permission Guide ===== */
+.mic-permission-guide {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  padding: 0 12px 12px;
+  transform: translateY(120%);
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.mic-permission-guide.show {
+  transform: translateY(0);
+}
+.mic-permission-guide-content {
+  background: var(--c-card);
+  border-radius: var(--r-xl);
+  padding: 20px;
+  box-shadow: 0 -4px 32px rgba(0, 0, 0, 0.15),
+              0 0 0 1px var(--c-border);
+  max-width: 400px;
+  margin: 0 auto;
+}
+.mic-permission-guide-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--c-border);
+}
+.mic-permission-guide-header span {
+  font-size: .92rem;
+  font-weight: 700;
+  color: var(--c-primary-800);
+}
+.mic-permission-guide-close {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--c-surface-alt);
+  color: var(--c-text-3);
+  font-size: .85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background .2s, color .2s;
+  border: none;
+}
+.mic-permission-guide-close:hover {
+  background: var(--c-danger-bg);
+  color: var(--c-danger);
+}
+.mic-permission-guide-content p {
+  font-size: .85rem;
+  color: var(--c-text);
+  margin-bottom: 8px;
+}
+.mic-permission-guide-content ol {
+  padding-left: 20px;
+  margin: 0;
+}
+.mic-permission-guide-content li {
+  font-size: .82rem;
+  color: var(--c-text-2);
+  line-height: 1.8;
+  padding: 2px 0;
+}
+
 /* Standalone PWA adjustments */
 .pwa-standalone .bottom-nav {
   padding-bottom: env(safe-area-inset-bottom, 0px);
