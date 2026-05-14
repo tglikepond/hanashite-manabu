@@ -1342,6 +1342,7 @@ async function incrementGlobalStat(expr, countType = 'analyze') {
         p_japanese: expr.japanese || '',
         p_reading: expr.reading || '',
         p_pronunciation: expr.pronunciation || '',
+        p_importance: expr.type || 'sentence',
         p_count_type: countType,
       }),
     });
@@ -1368,6 +1369,8 @@ function trackAnalyzedExpressions(expressions) {
     if (stats[key]) {
       stats[key].count++;
       stats[key].lastSeen = Date.now();
+      // Update type if it wasn't set before
+      if (expr.type) stats[key].type = expr.type;
     } else {
       stats[key] = {
         count: 1,
@@ -1463,7 +1466,11 @@ async function renderRanking() {
 
   function filterByType(items) {
     if (typeFilter === 'all') return items;
-    return items.filter(item => (item.type || 'sentence') === typeFilter);
+    return items.filter(item => {
+      // Check type field (local) or importance field (Supabase, where we store type)
+      const itemType = item.type || item.importance || 'sentence';
+      return itemType === typeFilter;
+    });
   }
 
   // --- Top Analyzed ---
