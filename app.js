@@ -24,7 +24,9 @@ let recognition = null;
 let restartTimer = null;
 let lastCommittedSegment = '';  // For deduplication
 let restartCount = 0;
-const MAX_RESTARTS = 200;
+const MAX_RESTARTS = 2000;
+const MAX_LISTEN_MS = 30 * 60 * 1000; // 30분 제한
+const CHUNK_CHAR_THRESHOLD = 2000;    // 이 이상이면 분할 분석
 
 // Audio processing for noise gate
 let audioContext = null;
@@ -34,6 +36,9 @@ let noiseGateActive = false;
 const NOISE_THRESHOLD = 0.015; // Min volume to consider as speech
 let lastConfidence = 0;
 let confidenceHistory = [];
+let listenStartTime = null;
+let listenTimerInterval = null;
+let wakeLock = null;
 
 // ===== DOM Elements =====
 const $ = (sel) => document.querySelector(sel);
@@ -78,6 +83,8 @@ function cacheDom() {
   els.confidenceIndicator = $('#confidence-indicator');
   els.confidenceBar = $('#confidence-bar');
   els.confidenceText = $('#confidence-text');
+  els.listenTimer = $('#listen-timer');
+  els.listenElapsed = $('#listen-elapsed');
 }
 
 // ===== IndexedDB =====
@@ -219,21 +226,50 @@ function initSpeechRecognition() {
     updateTranscriptUI();
   };
 
+  // Track whether the last recognition cycle had actual speech
+  let lastCycleHadSpeech = false;
+  let consecutiveSilence = 0;
+  const MAX_CONSECUTIVE_SILENCE = 60; // ~60 silence cycles ≈ ~3-5 min of silence
+
+  recognition.onresult = (function(originalOnResult) {
+    return function(e) {
+      lastCycleHadSpeech = true;
+      consecutiveSilence = 0;
+      originalOnResult(e);
+    };
+  })(recognition.onresult);
+
   recognition.onend = () => {
     state.interimTranscript = '';
 
-    // Auto-restart for continuous listening experience
-    if (state.isListening && restartCount < MAX_RESTARTS) {
+    // Auto-restart for continuous listening (30-min timer handles the time limit)
+    if (state.isListening) {
+      // Only count restarts that actually processed speech
+      if (lastCycleHadSpeech) {
+        restartCount++;
+      } else {
+        consecutiveSilence++;
+      }
+      lastCycleHadSpeech = false;
+
+      // Warn if prolonged silence detected
+      if (consecutiveSilence === 30) {
+        showToast('🔇 주변 소리가 감지되지 않습니다. 마이크를 확인해주세요.');
+      }
+
+      // Stop if silence is too long (microphone likely disconnected)
+      if (consecutiveSilence >= MAX_CONSECUTIVE_SILENCE) {
+        stopListening();
+        showToast('⏸ 장시간 무음 상태로 수집이 일시정지되었습니다.');
+        return;
+      }
+
       clearTimeout(restartTimer);
       restartTimer = setTimeout(() => {
         if (state.isListening) {
-          restartCount++;
           try { recognition.start(); } catch (e) { /* ignore */ }
         }
-      }, 150); // Reduced from 300ms for faster re-engagement
-    } else if (restartCount >= MAX_RESTARTS) {
-      stopListening();
-      showToast('장시간 대화 수집이 종료되었습니다. 다시 시작해주세요.');
+      }, 150);
     }
   };
 
@@ -248,7 +284,8 @@ function initSpeechRecognition() {
       state.isListening = false;
       stopListening();
     } else if (e.error === 'no-speech') {
-      // Silence — don't log, don't stop
+      // Silence — mark this cycle as no speech (don't consume restart budget)
+      lastCycleHadSpeech = false;
     } else if (e.error === 'aborted') {
       // Aborted by user or system — don't restart
     } else if (e.error === 'network') {
@@ -365,14 +402,24 @@ async function startListening() {
   // Initialize audio processing for noise gate & visual feedback
   await initAudioProcessing();
 
+  // Request wake lock to prevent screen sleep during recording
+  await requestWakeLock();
+
   state.isListening = true;
   restartCount = 0;
   lastCommittedSegment = '';
   confidenceHistory = [];
+  listenStartTime = Date.now();
+
+  // Start timer display
+  if (els.listenTimer) els.listenTimer.classList.remove('hidden');
+  updateListenTimer();
+  listenTimerInterval = setInterval(updateListenTimer, 1000);
+
   try { recognition.start(); } catch (e) { /* already started */ }
   els.micBtn.classList.add('listening');
   els.waveform.classList.add('active');
-  els.micStatus.textContent = '대화를 듣고 있습니다...';
+  els.micStatus.textContent = '대화를 듣고 있습니다... (최대 30분)';
   els.micStatus.classList.add('active');
   if (els.confidenceIndicator) els.confidenceIndicator.classList.remove('hidden');
 }
@@ -381,6 +428,18 @@ function stopListening() {
   state.isListening = false;
   clearTimeout(restartTimer);
   state.interimTranscript = '';
+
+  // Clear timer
+  if (listenTimerInterval) {
+    clearInterval(listenTimerInterval);
+    listenTimerInterval = null;
+  }
+  const elapsed = listenStartTime ? Date.now() - listenStartTime : 0;
+  listenStartTime = null;
+
+  // Release wake lock
+  releaseWakeLock();
+
   if (recognition) {
     try { recognition.stop(); } catch (e) { /* ignore */ }
   }
@@ -390,13 +449,19 @@ function stopListening() {
   els.micStatus.textContent = '탭하여 대화 수집 시작';
   els.micStatus.classList.remove('active');
   if (els.confidenceIndicator) els.confidenceIndicator.classList.add('hidden');
+  if (els.listenTimer) els.listenTimer.classList.add('hidden');
 
-  // Show average confidence summary if we have data
+  // Show session summary
   if (confidenceHistory.length > 0) {
     const avg = confidenceHistory.reduce((a, b) => a + b, 0) / confidenceHistory.length;
     const avgPct = (avg * 100).toFixed(0);
+    const elapsedMin = Math.floor(elapsed / 60000);
+    const elapsedSec = Math.floor((elapsed % 60000) / 1000);
+    const timeStr = elapsedMin > 0 ? `${elapsedMin}분 ${elapsedSec}초` : `${elapsedSec}초`;
     if (avg < 0.7) {
-      showToast(`⚠️ 평균 인식 신뢰도: ${avgPct}% — 조용한 환경에서 또렷하게 말해보세요`);
+      showToast(`⏱ ${timeStr} 수집 완료 (신뢰도 ${avgPct}%) — 조용한 환경에서 또렷하게 말해보세요`);
+    } else {
+      showToast(`⏱ ${timeStr} 대화 수집 완료`);
     }
   }
 }
@@ -415,6 +480,49 @@ function updateConfidenceUI(confidence) {
     els.confidenceBar.className = 'confidence-bar medium';
   } else {
     els.confidenceBar.className = 'confidence-bar low';
+  }
+}
+
+// ===== Timer & Wake Lock =====
+function formatElapsed(ms) {
+  const totalSec = Math.floor(ms / 1000);
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  return `${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+}
+
+function updateListenTimer() {
+  if (!listenStartTime) return;
+  const elapsed = Date.now() - listenStartTime;
+  if (els.listenElapsed) {
+    els.listenElapsed.textContent = formatElapsed(elapsed);
+  }
+  // Update remaining time in status
+  const remaining = MAX_LISTEN_MS - elapsed;
+  if (remaining <= 60000 && remaining > 0) {
+    els.micStatus.textContent = `⏰ 남은 시간: ${Math.ceil(remaining / 1000)}초`;
+  }
+  // Auto-stop at 30 minutes
+  if (elapsed >= MAX_LISTEN_MS) {
+    stopListening();
+    showToast('⏰ 30분 최대 수집 시간에 도달했습니다. 학습 정리를 만들어보세요!');
+  }
+}
+
+async function requestWakeLock() {
+  try {
+    if ('wakeLock' in navigator) {
+      wakeLock = await navigator.wakeLock.request('screen');
+    }
+  } catch (e) {
+    console.warn('Wake Lock not available:', e);
+  }
+}
+
+function releaseWakeLock() {
+  if (wakeLock) {
+    wakeLock.release().catch(() => {});
+    wakeLock = null;
   }
 }
 
@@ -542,6 +650,84 @@ async function translateToJapanese(koreanText) {
   }
 
   throw new Error('모든 모델의 무료 할당량이 초과되었습니다. 잠시 후 다시 시도하거나 API 키의 유료 결제를 확인하세요.');
+}
+
+// ===== Chunked Analysis for Long Conversations =====
+function splitTranscriptIntoChunks(text) {
+  if (text.length <= CHUNK_CHAR_THRESHOLD) return [text];
+
+  const chunks = [];
+  const words = text.split(/\s+/);
+  let current = '';
+
+  for (const word of words) {
+    if (current.length + word.length + 1 > CHUNK_CHAR_THRESHOLD && current.length > 0) {
+      chunks.push(current.trim());
+      current = word;
+    } else {
+      current += (current ? ' ' : '') + word;
+    }
+  }
+  if (current.trim()) chunks.push(current.trim());
+  return chunks.length > 0 ? chunks : [text];
+}
+
+function mergeAnalysisResults(results) {
+  const merged = {
+    conversation_summary: results.map(r => r.conversation_summary).filter(Boolean).join(' '),
+    expressions: [],
+    study_tips: [],
+  };
+
+  const seenKorean = new Set();
+  for (const result of results) {
+    for (const expr of (result.expressions || [])) {
+      const key = expr.korean?.replace(/\s+/g, '');
+      if (key && !seenKorean.has(key)) {
+        seenKorean.add(key);
+        merged.expressions.push(expr);
+      }
+    }
+    for (const tip of (result.study_tips || [])) {
+      if (!merged.study_tips.includes(tip)) {
+        merged.study_tips.push(tip);
+      }
+    }
+  }
+
+  merged.study_tips = merged.study_tips.slice(0, 5);
+  return merged;
+}
+
+async function analyzeTranscript(text) {
+  const chunks = splitTranscriptIntoChunks(text);
+
+  if (chunks.length === 1) {
+    return await translateToJapanese(chunks[0]);
+  }
+
+  // Long conversation — chunked analysis with progress
+  const loadingLabel = els.loadingArea.querySelector('.section-label');
+  const results = [];
+
+  for (let i = 0; i < chunks.length; i++) {
+    if (loadingLabel) {
+      loadingLabel.textContent = `대화 분석 중... (${i + 1}/${chunks.length})`;
+    }
+    try {
+      const result = await translateToJapanese(chunks[i]);
+      if (result) results.push(result);
+    } catch (err) {
+      console.warn(`Chunk ${i + 1} failed:`, err.message);
+    }
+  }
+
+  if (results.length === 0) {
+    throw new Error('모든 구간의 분석에 실패했습니다');
+  }
+
+  if (loadingLabel) loadingLabel.textContent = '결과 정리 중...';
+  return mergeAnalysisResults(results);
 }
 
 // ===== UI Rendering =====
@@ -807,15 +993,19 @@ function initEvents() {
 
     els.resultsArea.classList.add('hidden');
     els.loadingArea.classList.remove('hidden');
+    // Reset loading label
+    const loadingLabel = els.loadingArea.querySelector('.section-label');
+    if (loadingLabel) loadingLabel.textContent = '대화 분석 중...';
     els.convertBtn.disabled = true;
 
     try {
-      const result = await translateToJapanese(text);
+      const result = await analyzeTranscript(text);
       els.loadingArea.classList.add('hidden');
 
       if (result?.expressions?.length) {
         renderStudyPaper(result);
         els.resultsArea.classList.remove('hidden');
+        showToast(`✨ ${result.expressions.length}개 핵심 표현을 찾았습니다`);
       } else {
         showToast('핵심 표현을 찾지 못했습니다');
       }

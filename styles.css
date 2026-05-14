@@ -178,6 +178,28 @@ main {
   transition: transform 0.08s ease-out;
 }
 
+/* Listen Timer */
+.listen-timer {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: 'Inter', monospace;
+  font-size: .95rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--c-primary-700);
+  background: var(--c-primary-50);
+  padding: 6px 16px;
+  border-radius: var(--r-full);
+  border: 1.5px solid var(--c-primary-200);
+  animation: fadeIn .3s ease;
+}
+.listen-timer .timer-sep {
+  color: var(--c-text-3);
+  font-weight: 400;
+  margin: 0 2px;
+}
+
 /* ===== Confidence Indicator ===== */
 .confidence-indicator {
   width: 100%;
