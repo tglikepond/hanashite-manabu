@@ -10,6 +10,10 @@ const FALLBACK_MODELS = [
   'gemini-2.5-flash-lite',
 ];
 
+// ===== Supabase Global Ranking Defaults =====
+const DEFAULT_SUPABASE_URL = 'https://trvihedkasxejrtfdnlp.supabase.co';
+const DEFAULT_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRydmloZWRrYXN4ZWpydGZkbmxwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3Njg4MzQsImV4cCI6MjA5NDM0NDgzNH0.xjt_D4E3ROOZ7-CFgTDDd4iGjdtqDbcpaWHaX1Ce9Ck';
+
 // ===== App State =====
 const state = {
   isListening: false,
@@ -17,8 +21,8 @@ const state = {
   interimTranscript: '',
   apiKey: localStorage.getItem('gemini_api_key') || '',
   model: localStorage.getItem('gemini_model') || 'gemini-2.0-flash-lite',
-  supabaseUrl: localStorage.getItem('supabase_url') || '',
-  supabaseKey: localStorage.getItem('supabase_key') || '',
+  supabaseUrl: localStorage.getItem('supabase_url') || DEFAULT_SUPABASE_URL,
+  supabaseKey: localStorage.getItem('supabase_key') || DEFAULT_SUPABASE_KEY,
   db: null,
 };
 
