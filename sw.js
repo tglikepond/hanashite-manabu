@@ -1,6 +1,6 @@
 // Service Worker for PWA — v1.4
 // Versioned to force browser to detect changes and update the SW
-const SW_VERSION = 'v1.6';
+const SW_VERSION = 'v1.7';
 
 self.addEventListener('install', () => {
   console.log(`[SW ${SW_VERSION}] Installing...`);

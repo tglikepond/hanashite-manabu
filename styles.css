@@ -482,6 +482,12 @@ main {
   color: #7C3AED; margin-top: 4px;
   opacity: .85;
 }
+.card-example .example-kr {
+  font-family: var(--font-kr); font-size: .8rem;
+  color: #6D28D9; margin-top: 6px;
+  padding-left: 8px; border-left: 2px solid #C4B5FD;
+  line-height: 1.5;
+}
 
 .card-explanation {
   background: var(--c-primary-50); border-radius: var(--r-sm);
