@@ -278,11 +278,26 @@ function initSpeechRecognition() {
       }
 
       clearTimeout(restartTimer);
+      // Use longer delay on mobile to avoid rapid restart issues
+      const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+      const restartDelay = isMobile ? 300 : 150;
       restartTimer = setTimeout(() => {
         if (state.isListening) {
-          try { recognition.start(); } catch (e) { /* ignore */ }
+          try { recognition.start(); } catch (e) {
+            // On mobile, recognition.start() can fail if mic is busy
+            // Retry once after a longer delay
+            if (isMobile) {
+              setTimeout(() => {
+                if (state.isListening) {
+                  try { recognition.start(); } catch (e2) {
+                    console.warn('Recognition restart retry failed:', e2);
+                  }
+                }
+              }, 500);
+            }
+          }
         }
-      }, 150);
+      }, restartDelay);
     }
   };
 
@@ -409,26 +424,29 @@ async function ensureMicrophonePermission() {
   try {
     // Check if permissions API is available
     if (navigator.permissions) {
-      const permStatus = await navigator.permissions.query({ name: 'microphone' });
-      if (permStatus.state === 'denied') {
-        showToast('⚠️ 마이크 권한이 차단되어 있습니다.');
-        showMicPermissionGuide();
-        return false;
+      try {
+        const permStatus = await navigator.permissions.query({ name: 'microphone' });
+        if (permStatus.state === 'denied') {
+          showToast('⚠️ 마이크 권한이 차단되어 있습니다.');
+          showMicPermissionGuide();
+          return false;
+        }
+        // If already granted, skip getUserMedia to avoid holding the mic
+        if (permStatus.state === 'granted') {
+          return true;
+        }
+      } catch (permErr) {
+        // permissions.query may not support 'microphone' on all browsers
+        console.warn('permissions.query not supported for microphone:', permErr);
       }
     }
 
-    // In standalone PWA mode, we MUST request getUserMedia first
-    // to trigger the permission prompt before SpeechRecognition can work
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      }
-    });
-
-    // Keep the stream for audio processing, don't stop it yet
-    return stream;
+    // Permission state is 'prompt' or unknown — trigger the permission dialog
+    // via getUserMedia, then IMMEDIATELY release the stream so SpeechRecognition
+    // can get exclusive mic access (critical on mobile)
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach(t => t.stop()); // Release mic immediately
+    return true;
   } catch (err) {
     console.error('Microphone permission request failed:', err);
     if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
@@ -446,10 +464,11 @@ async function ensureMicrophonePermission() {
 }
 
 // Initialize AudioContext for noise gate processing
-async function initAudioProcessing(existingStream) {
+// NOTE: On mobile, getUserMedia can conflict with SpeechRecognition for mic access.
+// Only call this on desktop where mic sharing is supported.
+async function initAudioProcessing() {
   try {
-    // Use existing stream from permission request, or request a new one
-    audioStream = existingStream || await navigator.mediaDevices.getUserMedia({
+    audioStream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
         noiseSuppression: true,
@@ -525,27 +544,17 @@ async function startListening() {
     return;
   }
 
-  // CRITICAL: Request microphone permission FIRST, before initializing SpeechRecognition
-  // In PWA standalone mode, SpeechRecognition often fails to trigger the permission prompt
-  // By requesting getUserMedia first, we ensure the browser grants mic access
-  const micStream = await ensureMicrophonePermission();
-  if (!micStream) {
-    // Permission denied or mic not available
+  // Step 1: Ensure microphone permission is granted
+  // This triggers the permission prompt if needed, then immediately releases the mic
+  const permGranted = await ensureMicrophonePermission();
+  if (!permGranted) {
     return;
   }
 
+  // Step 2: Initialize SpeechRecognition object
   if (!recognition && !initSpeechRecognition()) {
-    // Clean up the mic stream if recognition not supported
-    micStream.getTracks().forEach(t => t.stop());
     showToast('⚠️ 이 브라우저에서는 음성 인식이 지원되지 않습니다.');
     return;
-  }
-
-  // Initialize audio processing reusing the already-granted mic stream
-  try {
-    await initAudioProcessing(micStream);
-  } catch (err) {
-    console.warn('Audio processing init skipped:', err);
   }
 
   // Request wake lock to prevent screen sleep during recording
@@ -562,26 +571,35 @@ async function startListening() {
   updateListenTimer();
   listenTimerInterval = setInterval(updateListenTimer, 1000);
 
+  // Step 3: Start SpeechRecognition FIRST — it needs exclusive mic access on mobile
   try {
     recognition.start();
   } catch (e) {
     console.error('Recognition start failed:', e);
-    // If already started, try stopping and restarting
     try {
       recognition.stop();
-      setTimeout(() => {
-        try { recognition.start(); } catch (e2) {
-          showToast('⚠️ 음성 인식 시작에 실패했습니다. 페이지를 새로고침해주세요.');
-          state.isListening = false;
-          return;
-        }
-      }, 300);
+      await new Promise(r => setTimeout(r, 300));
+      recognition.start();
     } catch (e2) {
       showToast('⚠️ 음성 인식 시작에 실패했습니다. 페이지를 새로고침해주세요.');
       state.isListening = false;
       return;
     }
   }
+
+  // Step 4: Audio visualization (desktop only)
+  // On mobile, getUserMedia conflicts with SpeechRecognition for mic access.
+  // Sharing the mic between getUserMedia and SpeechRecognition causes
+  // SpeechRecognition to receive no audio on mobile Chrome/Safari.
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  if (!isMobile) {
+    try {
+      await initAudioProcessing();
+    } catch (err) {
+      console.warn('Audio processing init skipped:', err);
+    }
+  }
+
   els.micBtn.classList.add('listening');
   els.waveform.classList.add('active');
   els.micStatus.textContent = '대화를 듣고 있습니다... (최대 30분)';
