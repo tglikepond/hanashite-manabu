@@ -226,16 +226,69 @@ main {
 
 /* ===== Expression Card ===== */
 .results-area { margin-top: 24px; }
-.card-list { display: flex; flex-direction: column; gap: 14px; }
+.card-list { display: flex; flex-direction: column; gap: 10px; }
 
 .expr-card {
   background: var(--c-card); border-radius: var(--r-lg);
-  padding: 18px; border-left: 4px solid var(--c-primary-600);
+  border-left: 4px solid var(--c-primary-600);
   box-shadow: var(--shadow-sm);
   animation: slideUp .4s ease;
   transition: box-shadow .2s;
+  overflow: hidden;
 }
 .expr-card:hover { box-shadow: var(--shadow-md); }
+
+/* -- Collapsed summary row -- */
+.card-summary {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px; gap: 10px;
+  cursor: pointer; user-select: none;
+  transition: background .15s;
+}
+.card-summary:hover { background: var(--c-primary-50); }
+.card-summary:focus-visible { outline: 2px solid var(--c-primary-500); outline-offset: -2px; }
+.card-summary-content {
+  display: flex; flex-direction: column; gap: 2px;
+  min-width: 0; flex: 1;
+}
+.card-summary-jp {
+  font-family: var(--font-jp); font-size: 1rem; font-weight: 700;
+  color: var(--c-primary-800); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.card-summary-kr {
+  font-family: var(--font-kr); font-size: .78rem;
+  color: var(--c-text-2); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.card-summary-right {
+  display: flex; align-items: center; gap: 6px;
+  flex-shrink: 0;
+}
+.card-chevron {
+  stroke: var(--c-text-3);
+  transition: transform .3s cubic-bezier(.4,0,.2,1);
+}
+
+/* -- Expand / collapse states -- */
+.expr-card-collapsed .card-detail {
+  max-height: 0; opacity: 0; overflow: hidden;
+  transition: max-height .35s cubic-bezier(.4,0,.2,1), opacity .25s ease;
+}
+.expr-card-expanded .card-detail {
+  max-height: 1200px; opacity: 1;
+  transition: max-height .45s cubic-bezier(.4,0,.2,1), opacity .3s ease .05s;
+}
+.expr-card-expanded .card-chevron {
+  transform: rotate(180deg);
+}
+.expr-card-expanded .card-summary {
+  border-bottom: 1px solid var(--c-border);
+}
+
+/* -- Detail inner content -- */
+.card-detail { padding: 0 16px; }
+.expr-card-expanded .card-detail { padding: 14px 16px 16px; }
 
 .card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 8px; }
 .style-badge, .importance-badge {
@@ -264,20 +317,30 @@ main {
   font-family: var(--font-jp); font-size: .82rem;
   color: var(--c-primary-600); margin-bottom: 2px;
 }
-.card-romaji {
-  font-size: .78rem; color: var(--c-text-3); font-style: italic; margin-bottom: 12px;
+.card-pronunciation {
+  font-family: var(--font-kr); font-size: .8rem;
+  color: var(--c-text-2); margin-bottom: 12px;
+  background: var(--c-primary-50); display: inline-block;
+  padding: 2px 8px; border-radius: var(--r-sm);
 }
 
 .card-example {
   background: #F5F3FF; border-radius: var(--r-sm);
   padding: 12px; margin-bottom: 10px;
-  font-family: var(--font-jp); font-size: .85rem; color: #5B21B6;
   line-height: 1.6;
 }
 .card-example .label {
   font-weight: 700; color: #7C3AED; margin-bottom: 4px;
   font-size: .72rem; letter-spacing: .5px;
   font-family: var(--font-kr);
+}
+.card-example .example-jp {
+  font-family: var(--font-jp); font-size: .85rem; color: #5B21B6;
+}
+.card-example .example-pronunciation {
+  font-family: var(--font-kr); font-size: .78rem;
+  color: #7C3AED; margin-top: 4px;
+  opacity: .85;
 }
 
 .card-explanation {
@@ -304,6 +367,10 @@ main {
 }
 .card-alt .alt-reading {
   font-family: var(--font-jp); font-size: .75rem; color: var(--c-text-3);
+}
+.card-alt .alt-pronunciation {
+  font-family: var(--font-kr); font-size: .73rem;
+  color: var(--c-text-2); margin-top: 2px;
 }
 
 .card-actions { display: flex; justify-content: flex-end; gap: 8px; }

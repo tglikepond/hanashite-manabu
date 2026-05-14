@@ -308,6 +308,9 @@ const SYSTEM_PROMPT = `당신은 한국어-일본어 전문 번역가이자 일�
 7. 각 표현에 실제 사용 가능한 일본어 예문을 포함하세요
 8. 대화 전체의 맥락을 요약하고, 학습 팁도 제공하세요
 9. 해설은 한국어로 작성
+10. 발음 표기는 로마자(romaji)가 아닌 한글로 작성하세요 (예: "오하요 고자이마스", "와타시와", "이쿠요")
+11. 예문의 발음도 한글로 표기하세요
+12. 반대 스타일 번역의 발음도 한글로 표기하세요
 
 반드시 아래 JSON 형식으로만 응답하세요:
 {
@@ -319,12 +322,14 @@ const SYSTEM_PROMPT = `당신은 한국어-일본어 전문 번역가이자 일�
       "detected_style": "반말" 또는 "존댓말",
       "japanese": "메인 일본어 번역",
       "reading": "히라가나 읽기",
-      "romaji": "로마자 발음",
+      "pronunciation": "한글 발음 표기 (예: 오하요 고자이마스)",
       "alt_style": "반대 스타일 이름",
       "alt_japanese": "반대 스타일 번역",
       "alt_reading": "반대 스타일 히라가나",
+      "alt_pronunciation": "반대 스타일 한글 발음",
       "explanation": "간단한 문법/표현 해설 (한국어)",
-      "example": "이 표현을 활용한 자연스러운 일본어 예문 1개"
+      "example": "이 표현을 활용한 자연스러운 일본어 예문 1개",
+      "example_pronunciation": "예문의 한글 발음 표기"
     }
   ],
   "study_tips": ["이 대화에서 배울 수 있는 학습 포인트나 팁 (한국어, 2~4개)"]
@@ -419,54 +424,90 @@ function renderExpressionCard(expr, isSaved = false) {
   const altLabel = expr.alt_style === '반말' ? '반말 버전' : '존댓말 버전';
   const importanceClass = getImportanceClass(expr.importance);
   const importanceIcon = getImportanceIcon(expr.importance);
+  // Support both old field (romaji) and new field (pronunciation) for backward compatibility
+  const pronunciation = expr.pronunciation || expr.romaji || '';
+  const altPronunciation = expr.alt_pronunciation || '';
+  const examplePronunciation = expr.example_pronunciation || '';
 
   const card = document.createElement('div');
-  card.className = 'expr-card';
+  card.className = 'expr-card expr-card-collapsed';
   card.innerHTML = `
-    <div class="card-top">
-      <span class="importance-badge ${importanceClass}">${importanceIcon} ${escHtml(expr.importance || '유용')}</span>
-      <span class="style-badge ${styleClass}">${expr.detected_style}</span>
-    </div>
-    <div class="card-korean">"${escHtml(expr.korean)}"</div>
-    <div class="card-japanese">${escHtml(expr.japanese)}</div>
-    <div class="card-reading">${escHtml(expr.reading)}</div>
-    <div class="card-romaji">${escHtml(expr.romaji)}</div>
-    ${expr.example ? `
-    <div class="card-example">
-      <div class="label">📝 예문</div>
-      ${escHtml(expr.example)}
-    </div>
-    ` : ''}
-    <div class="card-explanation">
-      <div class="label">💡 해설</div>
-      ${escHtml(expr.explanation)}
-    </div>
-    <div class="card-alt">
-      <div class="alt-label">${altLabel}</div>
-      <div class="alt-jp">${escHtml(expr.alt_japanese)}</div>
-      <div class="alt-reading">${escHtml(expr.alt_reading)}</div>
-    </div>
-    ${isSaved ? `
-      <div class="card-date">${formatDate(expr.savedAt)}</div>
-      <div class="card-actions">
-        <button class="delete-btn" data-id="${expr.id}">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M5 6v14a2 2 0 002 2h10a2 2 0 002-2V6"/></svg>
-          삭제
-        </button>
+    <div class="card-summary" role="button" tabindex="0" aria-expanded="false">
+      <div class="card-summary-content">
+        <span class="card-summary-jp">${escHtml(expr.japanese)}</span>
+        <span class="card-summary-kr">${escHtml(expr.korean)}</span>
       </div>
-    ` : `
-      <div class="card-actions">
-        <button class="save-btn">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-          저장
-        </button>
+      <div class="card-summary-right">
+        <span class="importance-badge ${importanceClass}">${importanceIcon}</span>
+        <svg class="card-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
       </div>
-    `}
+    </div>
+    <div class="card-detail">
+      <div class="card-top">
+        <span class="importance-badge ${importanceClass}">${importanceIcon} ${escHtml(expr.importance || '유용')}</span>
+        <span class="style-badge ${styleClass}">${expr.detected_style}</span>
+      </div>
+      <div class="card-korean">"${escHtml(expr.korean)}"</div>
+      <div class="card-japanese">${escHtml(expr.japanese)}</div>
+      <div class="card-reading">${escHtml(expr.reading)}</div>
+      <div class="card-pronunciation">${escHtml(pronunciation)}</div>
+      ${expr.example ? `
+      <div class="card-example">
+        <div class="label">📝 예문</div>
+        <div class="example-jp">${escHtml(expr.example)}</div>
+        ${examplePronunciation ? `<div class="example-pronunciation">${escHtml(examplePronunciation)}</div>` : ''}
+      </div>
+      ` : ''}
+      <div class="card-explanation">
+        <div class="label">💡 해설</div>
+        ${escHtml(expr.explanation)}
+      </div>
+      <div class="card-alt">
+        <div class="alt-label">${altLabel}</div>
+        <div class="alt-jp">${escHtml(expr.alt_japanese)}</div>
+        <div class="alt-reading">${escHtml(expr.alt_reading)}</div>
+        ${altPronunciation ? `<div class="alt-pronunciation">${escHtml(altPronunciation)}</div>` : ''}
+      </div>
+      ${isSaved ? `
+        <div class="card-date">${formatDate(expr.savedAt)}</div>
+        <div class="card-actions">
+          <button class="delete-btn" data-id="${expr.id}">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M5 6v14a2 2 0 002 2h10a2 2 0 002-2V6"/></svg>
+            삭제
+          </button>
+        </div>
+      ` : `
+        <div class="card-actions">
+          <button class="save-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            저장
+          </button>
+        </div>
+      `}
+    </div>
   `;
+
+  // Toggle expand/collapse on summary click
+  const summaryEl = card.querySelector('.card-summary');
+  summaryEl.addEventListener('click', (e) => {
+    // Don't toggle if clicking a button inside
+    if (e.target.closest('.card-actions')) return;
+    card.classList.toggle('expr-card-collapsed');
+    card.classList.toggle('expr-card-expanded');
+    const isExpanded = card.classList.contains('expr-card-expanded');
+    summaryEl.setAttribute('aria-expanded', isExpanded);
+  });
+  summaryEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      summaryEl.click();
+    }
+  });
 
   // Event listeners
   if (isSaved) {
-    card.querySelector('.delete-btn')?.addEventListener('click', async () => {
+    card.querySelector('.delete-btn')?.addEventListener('click', async (e) => {
+      e.stopPropagation();
       await deleteExpression(expr.id);
       card.style.opacity = '0';
       card.style.transform = 'translateX(40px)';
@@ -475,19 +516,22 @@ function renderExpressionCard(expr, isSaved = false) {
       showToast('표현이 삭제되었습니다');
     });
   } else {
-    card.querySelector('.save-btn')?.addEventListener('click', async () => {
+    card.querySelector('.save-btn')?.addEventListener('click', async (e) => {
+      e.stopPropagation();
       const exprToSave = {
         korean: expr.korean,
         importance: expr.importance,
         detected_style: expr.detected_style,
         japanese: expr.japanese,
         reading: expr.reading,
-        romaji: expr.romaji,
+        pronunciation: pronunciation,
         alt_style: expr.alt_style,
         alt_japanese: expr.alt_japanese,
         alt_reading: expr.alt_reading,
+        alt_pronunciation: altPronunciation,
         explanation: expr.explanation,
         example: expr.example,
+        example_pronunciation: examplePronunciation,
       };
       await saveExpression(exprToSave);
       const btn = card.querySelector('.save-btn');
