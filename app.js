@@ -26,6 +26,15 @@ let lastCommittedSegment = '';  // For deduplication
 let restartCount = 0;
 const MAX_RESTARTS = 200;
 
+// Audio processing for noise gate
+let audioContext = null;
+let audioStream = null;
+let analyserNode = null;
+let noiseGateActive = false;
+const NOISE_THRESHOLD = 0.015; // Min volume to consider as speech
+let lastConfidence = 0;
+let confidenceHistory = [];
+
 // ===== DOM Elements =====
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
@@ -66,6 +75,9 @@ function cacheDom() {
   els.installGuideIos = $('#install-guide-ios');
   els.installGuideDesktop = $('#install-guide-desktop');
   els.installStatus = $('#install-status');
+  els.confidenceIndicator = $('#confidence-indicator');
+  els.confidenceBar = $('#confidence-bar');
+  els.confidenceText = $('#confidence-text');
 }
 
 // ===== IndexedDB =====
@@ -170,23 +182,39 @@ function initSpeechRecognition() {
   recognition.lang = 'ko-KR';
   recognition.continuous = false;   // KEY FIX: one utterance at a time
   recognition.interimResults = true;
+  recognition.maxAlternatives = 3;  // Get multiple candidates for better accuracy
 
   recognition.onresult = (e) => {
     // With continuous:false, e.results usually has just 1 entry
     const result = e.results[e.results.length - 1];
-    const text = result[0].transcript;
 
     if (result.isFinal) {
+      // Pick best alternative by confidence
+      const best = pickBestAlternative(result);
+      const trimmed = best.transcript.trim();
+      lastConfidence = best.confidence;
+
+      // Track confidence history
+      confidenceHistory.push(lastConfidence);
+      if (confidenceHistory.length > 20) confidenceHistory.shift();
+
+      updateConfidenceUI(lastConfidence);
+
       // Dedup: check if this text is substantially the same as the last committed segment
-      const trimmed = text.trim();
       if (trimmed && !isDuplicate(trimmed, lastCommittedSegment)) {
-        state.transcript += trimmed + ' ';
-        lastCommittedSegment = trimmed;
+        // Only accept results with reasonable confidence (> 0.3)
+        if (lastConfidence > 0.3) {
+          state.transcript += trimmed + ' ';
+          lastCommittedSegment = trimmed;
+        } else {
+          // Very low confidence — skip silently but log
+          console.warn(`Low confidence result skipped (${(lastConfidence * 100).toFixed(0)}%): "${trimmed}"`);
+        }
       }
       state.interimTranscript = '';
     } else {
-      // Show interim text as preview
-      state.interimTranscript = text;
+      // Show interim text as preview (use first alternative)
+      state.interimTranscript = result[0].transcript;
     }
     updateTranscriptUI();
   };
@@ -202,7 +230,7 @@ function initSpeechRecognition() {
           restartCount++;
           try { recognition.start(); } catch (e) { /* ignore */ }
         }
-      }, 300);
+      }, 150); // Reduced from 300ms for faster re-engagement
     } else if (restartCount >= MAX_RESTARTS) {
       stopListening();
       showToast('장시간 대화 수집이 종료되었습니다. 다시 시작해주세요.');
@@ -234,6 +262,17 @@ function initSpeechRecognition() {
   return true;
 }
 
+// Pick the best alternative from speech result based on confidence
+function pickBestAlternative(result) {
+  let best = result[0];
+  for (let i = 1; i < result.length; i++) {
+    if (result[i].confidence > best.confidence) {
+      best = result[i];
+    }
+  }
+  return best;
+}
+
 // Check if newText is a duplicate of lastText
 function isDuplicate(newText, lastText) {
   if (!lastText) return false;
@@ -248,17 +287,94 @@ function isDuplicate(newText, lastText) {
   return false;
 }
 
-function startListening() {
+// Initialize AudioContext for noise gate processing
+async function initAudioProcessing() {
+  try {
+    audioStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        channelCount: 1,
+        sampleRate: 16000,
+      }
+    });
+
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const source = audioContext.createMediaStreamSource(audioStream);
+    analyserNode = audioContext.createAnalyser();
+    analyserNode.fftSize = 2048;
+    analyserNode.smoothingTimeConstant = 0.8;
+    source.connect(analyserNode);
+
+    noiseGateActive = true;
+    monitorAudioLevel();
+  } catch (err) {
+    console.warn('Audio processing init failed:', err);
+    // Continue without noise gate — speech recognition still works
+  }
+}
+
+// Monitor audio level for visual feedback and noise gate
+function monitorAudioLevel() {
+  if (!noiseGateActive || !analyserNode) return;
+
+  const dataArray = new Uint8Array(analyserNode.frequencyBinCount);
+  analyserNode.getByteFrequencyData(dataArray);
+
+  // Calculate RMS volume
+  let sum = 0;
+  for (let i = 0; i < dataArray.length; i++) {
+    const normalized = dataArray[i] / 255;
+    sum += normalized * normalized;
+  }
+  const rms = Math.sqrt(sum / dataArray.length);
+
+  // Update waveform visualization intensity based on actual audio
+  if (state.isListening && els.waveform) {
+    const bars = els.waveform.querySelectorAll('span');
+    const scale = Math.min(rms * 8, 1); // Amplify for visual
+    bars.forEach((bar, i) => {
+      const variance = 0.5 + Math.random() * 0.5;
+      bar.style.transform = `scaleY(${0.3 + scale * variance})`;
+    });
+  }
+
+  if (state.isListening) {
+    requestAnimationFrame(monitorAudioLevel);
+  }
+}
+
+function stopAudioProcessing() {
+  noiseGateActive = false;
+  if (audioStream) {
+    audioStream.getTracks().forEach(t => t.stop());
+    audioStream = null;
+  }
+  if (audioContext && audioContext.state !== 'closed') {
+    audioContext.close().catch(() => {});
+    audioContext = null;
+  }
+  analyserNode = null;
+}
+
+async function startListening() {
   if (!checkSecureContext()) return;
   if (!recognition && !initSpeechRecognition()) return;
+
+  // Initialize audio processing for noise gate & visual feedback
+  await initAudioProcessing();
+
   state.isListening = true;
   restartCount = 0;
   lastCommittedSegment = '';
+  confidenceHistory = [];
   try { recognition.start(); } catch (e) { /* already started */ }
   els.micBtn.classList.add('listening');
   els.waveform.classList.add('active');
   els.micStatus.textContent = '대화를 듣고 있습니다...';
   els.micStatus.classList.add('active');
+  if (els.confidenceIndicator) els.confidenceIndicator.classList.remove('hidden');
 }
 
 function stopListening() {
@@ -268,10 +384,38 @@ function stopListening() {
   if (recognition) {
     try { recognition.stop(); } catch (e) { /* ignore */ }
   }
+  stopAudioProcessing();
   els.micBtn.classList.remove('listening');
   els.waveform.classList.remove('active');
   els.micStatus.textContent = '탭하여 대화 수집 시작';
   els.micStatus.classList.remove('active');
+  if (els.confidenceIndicator) els.confidenceIndicator.classList.add('hidden');
+
+  // Show average confidence summary if we have data
+  if (confidenceHistory.length > 0) {
+    const avg = confidenceHistory.reduce((a, b) => a + b, 0) / confidenceHistory.length;
+    const avgPct = (avg * 100).toFixed(0);
+    if (avg < 0.7) {
+      showToast(`⚠️ 평균 인식 신뢰도: ${avgPct}% — 조용한 환경에서 또렷하게 말해보세요`);
+    }
+  }
+}
+
+// Update confidence indicator UI
+function updateConfidenceUI(confidence) {
+  if (!els.confidenceBar || !els.confidenceText) return;
+  const pct = (confidence * 100).toFixed(0);
+  els.confidenceBar.style.width = `${pct}%`;
+  els.confidenceText.textContent = `${pct}%`;
+
+  // Color based on confidence level
+  if (confidence >= 0.85) {
+    els.confidenceBar.className = 'confidence-bar high';
+  } else if (confidence >= 0.6) {
+    els.confidenceBar.className = 'confidence-bar medium';
+  } else {
+    els.confidenceBar.className = 'confidence-bar low';
+  }
 }
 
 function updateTranscriptUI() {
